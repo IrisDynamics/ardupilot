@@ -69,7 +69,7 @@ float AC_WPNav_OA::get_wp_distance_to_destination_m() const
         return AC_WPNav::get_wp_distance_to_destination_m();
     }
 
-    // Compute distance to original destination using backed-up NEU position
+    // Compute distance to original destination using backed-up NED position
     return get_horizontal_distance(_pos_control.get_pos_estimate_NED_m().xy(), _destination_oabak_ned_m.xy());
 }
 
@@ -103,9 +103,21 @@ bool AC_WPNav_OA::reached_wp_destination() const
 }
 
 // Runs the waypoint navigation update loop, including OA path planning logic.
-// Delegates to parent class if OA is not active or not required.
+// Delegates to parent class if the leg is a circular orbit, or if OA is not active or not required.
 bool AC_WPNav_OA::update_wpnav()
 {
+    // Object avoidance does not run on a circular orbit leg.  The path planners are given a
+    // straight origin-to-destination segment, which for an orbit is the chord back to the entry
+    // point rather than the arc being flown, so they would both miss obstacles on the arc and,
+    // on deactivating, rebuild the leg as a straight line to the entry point, discarding the
+    // turns not yet flown.  Holding the state inactive keeps every other override here falling
+    // through to the base class for the whole orbit, in particular reached_wp_destination(),
+    // which would otherwise never report the orbit complete
+    if (_this_leg_is_circle) {
+        _oa_state = AP_OAPathPlanner::OA_NOT_REQUIRED;
+        return AC_WPNav::update_wpnav();
+    }
+
     // Run path planning logic using the active OA planner
     AP_OAPathPlanner *oa_ptr = AP_OAPathPlanner::get_singleton();
     Location current_loc;
@@ -242,7 +254,7 @@ bool AC_WPNav_OA::update_wpnav()
                     return false;
                 }
 
-                // Convert global destination to NEU vector and pass directly to position controller
+                // Convert global destination to NED vector and pass directly to position controller
                 Vector2f destination_ne_m;
                 if (!_oa_destination.get_vector_xy_from_origin_NE_m(destination_ne_m)) {
                     // this should never happen because we can only get here if we have an EKF origin
@@ -251,7 +263,7 @@ bool AC_WPNav_OA::update_wpnav()
                 }
                 float target_alt_loc_alt_m = 0;
                 UNUSED_RESULT(target_alt_loc.get_alt_m(target_alt_loc.get_alt_frame(), target_alt_loc_alt_m));
-                Vector3p destination_ned_m{destination_ne_m.x, destination_ne_m.y, target_alt_loc_alt_m};
+                Vector3p destination_ned_m{destination_ne_m.x, destination_ne_m.y, -target_alt_loc_alt_m};
 
                 // pass the desired position directly to the position controller
                 _pos_control.input_pos_NED_m(destination_ned_m, terrain_d_m, 10.0);
@@ -267,7 +279,7 @@ bool AC_WPNav_OA::update_wpnav()
                 _oa_state = oa_retstate;
                 _oa_destination = oa_destination_new;
 
-                // Convert final destination to NEU offset and push to position controller
+                // Convert final destination to NED offset and push to position controller
                 Vector3p destination_ned_m;
                 if (!_oa_destination.get_vector_from_origin_NED_m(destination_ned_m)) {
                     // this should never happen because we can only get here if we have an EKF origin
@@ -275,7 +287,7 @@ bool AC_WPNav_OA::update_wpnav()
                     return false;
                 }
 
-                // pass the desired position directly to the position controller as an offset from EKF origin in NEU
+                // pass the desired position directly to the position controller as an offset from EKF origin in NED
                 _pos_control.input_pos_NED_m(destination_ned_m, 0, 10.0);
 
                 // update horizontal position controller (vertical is updated in vehicle code)
@@ -293,4 +305,4 @@ bool AC_WPNav_OA::update_wpnav()
     return AC_WPNav::update_wpnav();
 }
 
-#endif  // Ac_WPNAV_OA_ENABLED
+#endif  // AC_WPNAV_OA_ENABLED

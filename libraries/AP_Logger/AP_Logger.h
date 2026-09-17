@@ -13,7 +13,6 @@
 #include <AP_Mission/AP_Mission.h>
 #include <AP_Logger/LogStructure.h>
 #include <AP_Vehicle/ModeReason.h>
-#include <AP_RCProtocol/AP_RCProtocol.h>
 
 #include <stdint.h>
 
@@ -102,6 +101,8 @@ enum class LogEvent : uint8_t {
     NOT_SURFACED = 164,
     BOTTOMED = 165,
     NOT_BOTTOMED = 166,
+
+    EKF_MAG_OFFSETS_SAVED = 167, // compass offsets learned by the EKF were saved on disarm
 };
 
 enum class LogDataID : uint8_t {
@@ -247,6 +248,8 @@ public:
 
     void StopLogging();
 
+    void Write_RTC();
+
     void Write_Parameter(const char *name, float value);
     void Write_Event(LogEvent id);
     void Write_Error(LogErrorSubsystem sub_system,
@@ -273,7 +276,6 @@ public:
     void Write_MessageChunk(uint8_t id, const char *messagechunk, uint8_t chunk_seq);
 
     void Write_MessageF(const char *fmt, ...);
-    void Write_Compass();
     void Write_Mode(uint8_t mode, const ModeReason reason);
 
     void Write_EntireMission();
@@ -284,9 +286,6 @@ public:
                        bool was_command_long=false);
     void Write_MISE(const AP_Mission &mission, const AP_Mission::Mission_Command &cmd) {
         Write_Mission_Cmd(mission, cmd, LOG_MISE_MSG);
-    }
-    void Write_CMD(const AP_Mission &mission, const AP_Mission::Mission_Command &cmd) {
-        Write_Mission_Cmd(mission, cmd, LOG_CMD_MSG);
     }
     void Write_Mission_Cmd(const AP_Mission &mission,
                            const AP_Mission::Mission_Command &cmd,
@@ -481,11 +480,6 @@ private:
     bool fill_logstructure(struct LogStructure &logstruct, const uint8_t msg_type) const;
 
     bool _armed;
-
-    // state to help us not log unnecessary RCIN values:
-    bool should_log_rcin2;
-
-    void Write_Compass_instance(uint64_t time_us, uint8_t mag_instance);
 
     void backend_starting_new_log(const AP_Logger_Backend *backend);
 

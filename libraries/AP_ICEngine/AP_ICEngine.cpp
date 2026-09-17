@@ -220,7 +220,7 @@ void AP_ICEngine::init()
     param_conversion();
 }
 
-// PARAMETER_CONVERSION - Added: Aug 2024
+// PARAMETER_CONVERSION - Added: Aug-2024 for ArduPilot-4.6
 void AP_ICEngine::param_conversion()
 {
     if (!enable || (param_format_version == 1)) {
@@ -724,10 +724,6 @@ void AP_ICEngine::set_ignition(bool on)
 void AP_ICEngine::set_starter(bool on)
 {
     SRV_Channels::set_output_scaled(SRV_Channel::k_starter, on ? 1.0 : 0.0);
-
-#if AP_ICENGINE_TCA9554_STARTER_ENABLED
-    tca9554_starter.set_starter(on, option_set(Options::CRANK_DIR_REVERSE));
-#endif
 
 #if AP_RELAY_ENABLED
     AP_Relay *relay = AP::relay();

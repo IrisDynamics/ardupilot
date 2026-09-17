@@ -13,11 +13,15 @@ from pymavlink import mavextra
 from pymavlink import mavutil
 
 import vehicle_test_suite
+
+from vehicle_test_suite import AltFrame
+from vehicle_test_suite import Location
 from vehicle_test_suite import NotAchievedException
 
 # get location of scripts
 testdir = os.path.dirname(os.path.realpath(__file__))
-SITL_START_LOCATION = mavutil.location(-27.274439, 151.290064, 343, 8.7)
+SITL_START_LOCATION = Location(-27.274439, 151.290064, 343, AltFrame.ABSOLUTE)
+SITL_START_HEADING = 8.7
 
 
 class AutoTestTracker(vehicle_test_suite.TestSuite):
@@ -25,15 +29,14 @@ class AutoTestTracker(vehicle_test_suite.TestSuite):
     def log_name(self):
         return "AntennaTracker"
 
-    def default_speedup(self):
-        '''Tracker seems to be race-free'''
-        return 100
-
     def test_filepath(self):
         return os.path.realpath(__file__)
 
     def sitl_start_location(self):
         return SITL_START_LOCATION
+
+    def sitl_start_heading(self):
+        return SITL_START_HEADING
 
     def default_mode(self):
         return "AUTO"
@@ -191,6 +194,23 @@ class AutoTestTracker(vehicle_test_suite.TestSuite):
                 raise NotAchievedException("GPS_RAW not tracking simstate yaw")
             self.progress(f"yaw match ({gps_raw_hdg} vs {sim_hdg}")
 
+    def StationaryGlobalPositionIntAlt(self):
+        '''Test GLOBAL_POSITION_INT.alt is correct in stationary mode'''
+        # Disable GPS so the tracker stays in stationary mode (stationary=true).
+        # With GPS enabled the tracker gets a fix, sets stationary=false, and
+        # delegates to the base-class send_global_position_int() which is correct.
+        self.set_parameter("GPS1_TYPE", 0)
+        self.reboot_sitl()
+
+        # Set a known home position; Tracker::set_home() stores this in
+        # current_loc, which the stationary path uses directly.
+        home_loc = self.sitl_start_location()
+        self.set_home(home_loc)
+
+        self.assert_received_message_field_values("GLOBAL_POSITION_INT", {
+            "alt": int(home_loc.get_alt_m(AltFrame.ABSOLUTE) * 1000),
+        })
+
     def LoggerMsgChunks(self):
         '''create MSG dataflash entries for very long messages'''
         self.assert_parameter_value('LOG_DISARMED', 1)
@@ -199,7 +219,7 @@ class AutoTestTracker(vehicle_test_suite.TestSuite):
         self.send_statustext(short_message_text)
         self.send_statustext(long_message_text)
 
-        self.delay_sim_time(10)
+        self.delay_sim_time(10, reason="statustext to be logged")
         dfreader = self.dfreader_for_current_onboard_log()
         self.reboot_sitl()
 
@@ -211,7 +231,7 @@ class AutoTestTracker(vehicle_test_suite.TestSuite):
             if m is None:
                 break
             self.progress(f"{m.Message=}")
-            msg = m.Message.lstrip("SRC=250/250:")
+            msg = m.Message.removeprefix("SRC=250/250:")
             if phase == "short":
                 if msg != short_message_text:
                     continue
@@ -247,5 +267,6 @@ class AutoTestTracker(vehicle_test_suite.TestSuite):
             self.BaseMessageSet,
             self.GPSForYaw,
             self.LoggerMsgChunks,
+            self.StationaryGlobalPositionIntAlt,
         ])
         return ret
