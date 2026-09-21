@@ -12,7 +12,7 @@ public:
     /* Do not allow copies */
     CLASS_NO_COPY(AP_ORCAMotor_Params);
 
-    AP_Int8 enabled;
+    AP_Int8 type;
     AP_Int32 force_saturation;
     AP_Int32 p_gain_pid;
     AP_Int32 i_gain_pid;

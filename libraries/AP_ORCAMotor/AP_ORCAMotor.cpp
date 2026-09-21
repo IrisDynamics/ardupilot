@@ -4,6 +4,9 @@
 
 #if HAL_ORCAMOTOR_ENABLED
 
+#include "AP_ORCAMotor_Backend.h"
+#include "AP_ORCAMotor_Modbus.h"
+
 extern const AP_HAL::HAL& hal;
 
 const AP_Param::GroupInfo AP_ORCAMotor::var_info[] = {
@@ -28,7 +31,7 @@ AP_ORCAMotor::AP_ORCAMotor(){
 
 void AP_ORCAMotor::init(){
 
-    for (uint8_t i = 1; i < AP_ORCAMOTOR_MAX_INSTANCES; i++) {
+    for (uint8_t i = 0; i < AP_ORCAMOTOR_MAX_INSTANCES; i++) {
         if (get_instance(i) != nullptr) {
             return;
         }
@@ -36,27 +39,20 @@ void AP_ORCAMotor::init(){
 
     uint8_t instance;
     for(instance = 0; instance < AP_ORCAMOTOR_MAX_INSTANCES; instance++) {
-        if (_params[instance].enabled.get() != 0) {
+        if (_params[instance].type.get() != 0) {
             _backends[instance] = NEW_NOTHROW AP_ORCAMotor_Modbus(_params[instance], instance);
         }
     }
-    // motor_uart = uart;
-    // if (uart == nullptr) {
-    //     // that UART doesn't exist on this platform
-    //     return;
-    // }
 
-    // motor_uart->begin(HIGH_SPEED_MOTOR_BAUD);
-    // motor_uart->configure_parity(EVEN);
-
-    // serial_display_uart = hal.serial(5);
-    // serial_display_uart->begin(DEFAULT_MOTOR_BAUD);
-    // serial_display_uart->configure_parity(EVEN);
-    // current_state = OrcaState::PINGING;
-    // state_start_time = AP_HAL::millis();
+    for(instance = 0; instance < AP_ORCAMOTOR_MAX_INSTANCES; instance++) {
+        if (_backends[instance] != nullptr) {
+            _backends[instance]->init();
+        }
+    }
 }
 
 void AP_ORCAMotor::update(){
+    //uart_poll(motor_uart);
     // uint8_t tx[8];
 
     // tx[0] = 1;        // slave id
@@ -126,4 +122,22 @@ void AP_ORCAMotor::update(){
     // }
 }
 
+AP_ORCAMotor_Backend* AP_ORCAMotor::get_instance(uint8_t instance) const {
+    if(instance < AP_ORCAMOTOR_MAX_INSTANCES) {
+        return _backends[instance];
+    }
+    return nullptr;
+}
+
+AP_ORCAMotor *AP_ORCAMotor::_singleton = nullptr;
+
+AP_ORCAMotor* AP_ORCAMotor::get_singleton() {
+    return _singleton;
+}
+
+namespace AP {
+    AP_ORCAMotor* orcamotor() {
+        return AP_ORCAMotor::get_singleton();
+    }
+}
 #endif

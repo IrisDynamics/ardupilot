@@ -5,6 +5,17 @@
 #if HAL_ORCAMOTOR_ENABLED
 #include "AP_ORCAMotor_Backend.h"
 
+#define ORCAMOTOR_BAUD
+#define ORCAMOTOR_RX_BYTES 256
+#define ORCAMOTOR_TX_BYTES 128
+#define UART_PARITY_EVEN 2
+#define ORCA_SLAVE_ID 0x01
+
+// Specified TX lengths DO NOT include slave id, crc, or sub function codes
+#define EXT_MOTOR_FRAME_TX_LEN 7 
+#define EXT_MOTOR_FRAME_RX_LEN 42
+#define PING_RESPONSE_RX_LEN 6
+
 static constexpr uint8_t crc_hi_table[256] = {
     0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81,
     0x40, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81, 0x40, 0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0,
@@ -48,9 +59,13 @@ static constexpr uint8_t crc_lo_table[256] = {
     0x40
 };
 
-class AP_ORCAMotor_Modbus : AP_ORCAMotor_Backend {
+class AP_ORCAMotor_Modbus : public AP_ORCAMotor_Backend {
 public:
     using AP_ORCAMotor_Backend::AP_ORCAMotor_Backend;
+
+    void init() override;
+    bool healthy() override;
+    void set_mode(MotorMode mode) override;
 
     void enqueue_ping_message();
     void enqueue_extended_motor_frame(uint32_t position_um, uint16_t read_address);
@@ -66,30 +81,49 @@ private:
         RECEIVING,
         IDLE
     };
-    //static AP_ORCA_motor *_singleton;
+
+    enum FunctionCode {
+        MB_READ_SINGLE_REG = 0x03,
+        MB_WRITE_SINGLE_REG = 0x06,
+        MB_WRITE_MULTI_REG = 0x10,
+        MB_DIAG_QUERY_DATA = 0x08,
+        ORCA_MNG_HS_STREAM = 0x41,
+        ORCA_MTR_CMD_STREAM = 0x64,
+        ORCA_EXT_MTR_STREAM = 0x66,
+        ORCA_MTR_READ_STREAM = 0x68,
+        ORCA_MTR_WRITE_STREAM = 0x69
+    };
+
+    enum ExtMtrCmdMode {
+        EXT_MODE_NO_CHANGE = 0x00,
+        EXT_MODE_SLEEP = 0x01,
+        EXT_MODE_FORCE = 0x02,
+        EXT_MODE_POSITION = 0x03,
+        EXT_MODE_KINEMATIC = 0x05
+    };
+
+    enum CtrlRegister {
+        CTRL_REG_0 = 0,
+        CTRL_REG_1 = 1,
+        CTRL_REG_2 = 2,
+        CTRL_REG_3 = 3,
+        CTRL_REG_4 = 4
+    };
+
     AP_HAL::UARTDriver *motor_uart;
-    AP_HAL::UARTDriver *serial_display_uart;
+    
     OrcaState current_state = OrcaState::IDLE;
     uint32_t state_start_time;
-    uint8_t slave_id = 1;
-    uint8_t ping_message[6] = {0x01, 0x08, 0x00,0x00,0x80, 0x1A}; //diagnostic queury expected echo response
-    uint8_t extended_motor_frame_function_code = 0x66;           
-    uint8_t position_mode = 3;
-    int32_t target_position = 0;
     MotorData motor_data;
 
-    #define RX_BUFFER_SIZE 256
-    const uint8_t ping_response_length = 6;
-    const uint8_t extended_motor_frame_tx_length = 11;
-    const uint8_t extended_motor_frame_rx_length = 42;
-    uint8_t rx_buffer[RX_BUFFER_SIZE];
+    uint8_t rx_buffer[ORCAMOTOR_RX_BYTES];
     volatile uint16_t rx_head = 0, rx_tail = 0;
 
     void uart_poll(AP_HAL::UARTDriver* uart) {
         while (uart->available()) {
 
             uint8_t b = uart->read();
-            uint16_t next = (rx_head + 1) % RX_BUFFER_SIZE;
+            uint16_t next = (rx_head + 1) % ORCAMOTOR_RX_BYTES;
 
             if (next != rx_tail) {      // prevent overflow
                 rx_buffer[rx_head] = b;
@@ -99,7 +133,8 @@ private:
     }
     uint16_t rx_buffer_count();
 
-    bool bad_crc(uint8_t* rx_data, uint16_t rx_message_length);
+    void AP_ORCAMotor_Modbus::write(const uint8_t const *buf, const size_t len);
+    void AP_ORCAMotor_Modbus::write(const FunctionCode fn, const uint8_t const *data = nullptr, const size_t data_len = 0, const uint8_t const *sub_fn = nullptr, const size_t sub_fn_len = 0);
 
     inline int parseint32(uint8_t* data, int start_index, int32_t* value)
 	{
@@ -117,18 +152,25 @@ private:
 		return start_index + 2;
 	}
 
-    inline uint16_t generate_crc(uint8_t *message, int message_len) {
+    inline uint16_t generate_crc(const uint8_t *tx_message, size_t tx_message_len) {
         uint8_t crc_hi_byte = 0xFF;	// initialize crc bytes
         uint8_t crc_lo_byte = 0xFF; //
         int index = 0; // for indexing the crc tables
 
-        while(message_len--) {
-            index = crc_hi_byte ^ *message++;
+        while(tx_message_len--) {
+            index = crc_hi_byte ^ *tx_message++;
             crc_hi_byte = crc_lo_byte ^ crc_hi_table[index];
             crc_lo_byte = crc_lo_table[index];
         }
         return (crc_hi_byte << 8 | crc_lo_byte);	// return crc result, with bytes swapped for modbus message
     }
 
+    inline bool bad_crc(uint8_t* rx_data, uint16_t rx_frame_len){
+        uint16_t crc = generate_crc(rx_data, rx_frame_len-2);
+        if ((rx_data[rx_frame_len-2] != (crc & 0xFF)) | (rx_data[rx_frame_len-1] != (crc >> 8))){
+            return true;
+        }
+        return false;
+    }
 };
 #endif

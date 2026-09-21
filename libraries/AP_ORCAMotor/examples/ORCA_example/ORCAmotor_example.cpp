@@ -2,22 +2,84 @@
   simple test of UART interfaces
  */
 
+#include <AP_HAL/AP_HAL.h>                                      //This is a common Hardware Abstraction Layer.
 #include "AP_ORCAMotor/AP_ORCAMotor.h"
+#include <GCS_MAVLink/GCS_Dummy.h>
+#include <AP_Logger/AP_Logger.h>
+#include <AP_Notify/AP_Notify.h>
+#include <AP_Notify/AP_BoardLED.h>
+#include <AP_RTC/AP_RTC.h>
+#include <AP_SerialManager/AP_SerialManager.h>
+#include <AP_BoardConfig/AP_BoardConfig.h>
+#include <SITL/SITL.h>
+#include <AP_Scheduler/AP_Scheduler.h>
+
+#include <stdio.h>
 
 void setup();
 void loop();
 
 const AP_HAL::HAL& hal = AP_HAL::get_HAL(); 
-AP_ORCAMotor motor; 
+
+static AP_BoardConfig board_config;
+
+#if AP_NOTIFY_GPIO_LED_3_ENABLED
+// create board led object
+AP_BoardLED board_led;
+#endif
+
+// create fake gcs object
+GCS_Dummy _gcs;                                                 //gcs stands for Ground Control Station
+
+#if AP_SIM_ENABLED
+SITL::SIM sitl;
+AP_Baro baro;
+AP_Scheduler scheduler;
+#endif
+
+#if AP_RTC_ENABLED
+AP_RTC rtc;
+#endif
+
+#if HAL_LOGGING_ENABLED
+AP_Logger logger;
+#endif
+
+static AP_ORCAMotor motor;
+static AP_SerialManager serial_manager;
+
+static void setup_uart(AP_HAL::UARTDriver *uart, const char *name)
+{
+    if (uart == nullptr) {
+        // that UART doesn't exist on this platform
+        return;
+    }
+
+    uart->begin(19200);
+
+}
 
 void setup(void)
 {
     /*
       start all UARTs at orca default with default buffer sizes
     */
+    hal.console->printf("ORCAMotor Test\n");
 
-    hal.scheduler->delay(1000); //Ensure that hal.serial(n) can be initialized    
-    motor.init(hal.serial(4));
+#if AP_SIM_ENABLED
+    sitl.init();
+#endif  // AP_SIM_ENABLED
+
+    board_config.init();
+
+#if AP_NOTIFY_GPIO_LED_3_ENABLED
+    // Initialise the leds
+    board_led.init();
+#endif
+
+    // Initialize the UART for GPS system
+    serial_manager.init();
+    motor.init();
 }
 
 
@@ -61,20 +123,10 @@ void setup(void)
 
 void loop(void)
 {
-
-    //test_uart(hal.serial(0), "SERIAL0");
-    // test_uart(hal.serial(1), "SERIAL1");
-    // test_uart(hal.serial(2), "SERIAL2");
-    // test_uart(hal.serial(3), "SERIAL3");
+    ::printf("Setting sleep mode");
+    
     motor.update();
-   //test_uart(hal.serial(5), "SERIAL5");
-
-        // also do a raw printf() on some platforms, which prints to the
-        // debug console
-    // ::printf("Hello on debug console at %.3f seconds\n", (double)(AP_HAL::millis() * 0.001f));
-
-    //hal.scheduler->delay(5);
-
+    hal.scheduler->delay(1000);
 }
 
 AP_HAL_MAIN();
