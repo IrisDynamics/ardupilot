@@ -27,6 +27,29 @@
 
 #define AP_ORCAMOTOR_MAX_INSTANCES 2
 
+enum MotorMode {
+    MODE_SLEEP = 1,
+    MODE_FORCE = 2,
+    MODE_POSITION = 3,
+    MODE_HAPTIC = 4,
+    MODE_KINEMATIC = 5,
+    MODE_PWM = 11,
+    MODE_AUTOZERO = 55
+};
+
+struct MotorData {
+    int32_t force_mN;
+    int32_t position_um;
+    int32_t speed_mm_s;
+    int32_t acceleration_mm_s_2;
+    int16_t board_temp_C;
+    int16_t coil_temp_C;
+    int16_t mode_of_operation;
+    int16_t errors;
+    int16_t power_W;
+    int16_t voltage_V;
+};
+
 class AP_ORCAMotor_Backend;
 class AP_ORCAMotor_Modbus;
 
@@ -34,7 +57,6 @@ class AP_ORCAMotor{
 
     friend class AP_ORCAMotor_Backend;
     friend class AP_ORCAMotor_Modbus;
-
 public:
     AP_ORCAMotor();
 
@@ -45,9 +67,19 @@ public:
     void init();
     void update();
 
+    void set_mode(MotorMode mode);
+    void set_mode(uint8_t instance, MotorMode mode);
+
+    bool enabled();
+    bool enabled(uint8_t instance);
+
+    bool healthy();
+    bool healthy(uint8_t instance);
+
     static const struct AP_Param::GroupInfo var_info[];
 
     AP_ORCAMotor_Params _params[AP_ORCAMOTOR_MAX_INSTANCES];
+    MotorData _state[AP_ORCAMOTOR_MAX_INSTANCES];
 
 private:
     AP_ORCAMotor_Backend *get_instance(uint8_t instance) const;

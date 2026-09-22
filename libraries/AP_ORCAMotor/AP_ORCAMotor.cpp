@@ -122,6 +122,60 @@ void AP_ORCAMotor::update(){
     // }
 }
 
+void AP_ORCAMotor::set_mode(MotorMode mode) {
+    for (int instance = 0; instance < AP_ORCAMOTOR_MAX_INSTANCES; instance++) {
+        set_mode(instance, mode);
+    }
+}
+
+void AP_ORCAMotor::set_mode(uint8_t instance, MotorMode mode) {
+    auto* backend = get_instance(instance);
+    if(backend == nullptr) {
+        return;
+    }
+    backend->set_mode(mode);
+}
+
+bool AP_ORCAMotor::enabled() {
+    for (int instance = 0; instance < AP_ORCAMOTOR_MAX_INSTANCES; instance++) {
+        if(enabled(instance)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool AP_ORCAMotor::enabled(uint8_t instance) {
+    if (instance < AP_ORCAMOTOR_MAX_INSTANCES) {
+        return _params[instance].type.get() != 0;
+    }
+    return false;
+}
+
+bool AP_ORCAMotor::healthy() {
+    uint8_t num_backends = 0;
+    uint8_t num_healthy = 0;
+    for (uint8_t instance = 0; instance < AP_ORCAMOTOR_MAX_INSTANCES; instance++) {
+        auto *backend = get_instance(instance);
+        if (backend != nullptr) {
+            num_backends++;
+            if (backend->healthy()) {
+                num_healthy++;
+            }
+        }
+    }
+
+    return ((num_backends > 0) && (num_healthy == num_backends));
+}
+
+bool AP_ORCAMotor::healthy(uint8_t instance) {
+    auto* backend = get_instance(instance);
+    if(backend == nullptr) {
+        return false;
+    }
+    return backend->healthy();
+}
+
 AP_ORCAMotor_Backend* AP_ORCAMotor::get_instance(uint8_t instance) const {
     if(instance < AP_ORCAMOTOR_MAX_INSTANCES) {
         return _backends[instance];

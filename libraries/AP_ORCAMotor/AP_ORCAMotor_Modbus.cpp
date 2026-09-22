@@ -24,7 +24,6 @@ bool AP_ORCAMotor_Modbus::healthy() {
 
 void AP_ORCAMotor_Modbus::set_mode(MotorMode mode) {
     uint8_t tx[4] = {0x00, CTRL_REG_3, 0x00, mode};
-
     write(MB_WRITE_SINGLE_REG, tx, sizeof(tx));
 }
 
@@ -43,19 +42,20 @@ void AP_ORCAMotor_Modbus::write(const uint8_t *message, const size_t len) {
     motor_uart->flush();
 }
 
-void AP_ORCAMotor_Modbus::write(const FunctionCode fn, const uint8_t const *data, const size_t data_len, const uint8_t const *sub_fn, const size_t sub_fn_len) {
+void AP_ORCAMotor_Modbus::write(const FunctionCode fn, const uint8_t* const data, const size_t data_len, const uint8_t* const sub_fn, const size_t sub_fn_len) {
     size_t len = 2 + data_len + sub_fn_len;
     uint8_t buf[len];
     size_t idx = 0;
     buf[idx++] = ORCA_SLAVE_ID;
     buf[idx++] = fn;
-    if(data && data_len) {
-        memcpy(&buf[idx], data, data_len);
-        idx += data_len;
-    }
-    if(sub_fn && sub_fn_len) {
+    if(sub_fn != nullptr && sub_fn_len) {
         memcpy(&buf[idx], sub_fn, sub_fn_len);
+        idx += sub_fn_len;
     }
+    if(data != nullptr && data_len) {
+        memcpy(&buf[idx], data, data_len);
+    }
+
     return write(buf, len);
 }
 

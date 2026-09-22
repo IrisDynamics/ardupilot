@@ -133,8 +133,8 @@ private:
     }
     uint16_t rx_buffer_count();
 
-    void AP_ORCAMotor_Modbus::write(const uint8_t const *buf, const size_t len);
-    void AP_ORCAMotor_Modbus::write(const FunctionCode fn, const uint8_t const *data = nullptr, const size_t data_len = 0, const uint8_t const *sub_fn = nullptr, const size_t sub_fn_len = 0);
+    void write(const uint8_t* const buf, const size_t len);
+    void write(const FunctionCode fn, const uint8_t* const data = nullptr, const size_t data_len = 0, const uint8_t* const sub_fn = nullptr, const size_t sub_fn_len = 0);
 
     inline int parseint32(uint8_t* data, int start_index, int32_t* value)
 	{

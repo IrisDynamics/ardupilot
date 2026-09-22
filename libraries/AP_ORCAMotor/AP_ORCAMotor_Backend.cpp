@@ -11,5 +11,7 @@ extern const AP_HAL::HAL& hal;
 AP_ORCAMotor_Backend::AP_ORCAMotor_Backend(AP_ORCAMotor_Params &params, uint8_t instance) :
     _params(params),
     _instance(instance)
-{}
+{
+    target_position = 0;
+}
 #endif

@@ -13,6 +13,7 @@
 #include <AP_Stats/AP_Stats.h>
 #include "AP_Torqeedo/AP_Torqeedo.h"
 #include <AP_WindVane/AP_WindVane.h>
+#include "AP_ORCAMotor/AP_ORCAMotor.h"
 
 #define AP_PARAM_VEHICLE_NAME rover
 
@@ -410,6 +411,10 @@ public:
 #if HAL_TORQEEDO_ENABLED
     // torqeedo motor driver
     AP_Torqeedo torqeedo;
+#endif
+
+#if HAL_ORCAMOTOR_ENABLED
+    AP_ORCAMotor orcamotor;
 #endif
 
     // position controller

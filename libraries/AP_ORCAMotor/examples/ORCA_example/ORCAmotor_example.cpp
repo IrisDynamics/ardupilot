@@ -48,17 +48,6 @@ AP_Logger logger;
 static AP_ORCAMotor motor;
 static AP_SerialManager serial_manager;
 
-static void setup_uart(AP_HAL::UARTDriver *uart, const char *name)
-{
-    if (uart == nullptr) {
-        // that UART doesn't exist on this platform
-        return;
-    }
-
-    uart->begin(19200);
-
-}
-
 void setup(void)
 {
     /*
@@ -123,9 +112,9 @@ void setup(void)
 
 void loop(void)
 {
-    ::printf("Setting sleep mode");
-    
     motor.update();
+    ::printf("Setting sleep mode");
+    motor.set_mode(MODE_SLEEP);
     hal.scheduler->delay(1000);
 }
 
