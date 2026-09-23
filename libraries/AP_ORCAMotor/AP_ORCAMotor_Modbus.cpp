@@ -84,8 +84,8 @@ void AP_ORCAMotor_Modbus::write(const FunctionCode fn, const uint8_t* const data
 }
 
 void AP_ORCAMotor_Modbus::enqueue_ping_message(){
-    // uint8_t diag_fn[2] = {0, 0};
-    // write(MB_DIAG_QUERY_DATA, nullptr, 0, diag_fn, sizeof(diag_fn));
+    uint8_t diag_fn[2] = {0, 0};
+    write(MB_DIAG_QUERY_DATA, nullptr, 0, diag_fn, sizeof(diag_fn));
 }
 
 void AP_ORCAMotor_Modbus::enqueue_extended_motor_frame(ExtMtrCmdMode mode, uint32_t data, uint16_t read_address){
@@ -102,36 +102,27 @@ void AP_ORCAMotor_Modbus::enqueue_extended_motor_frame(ExtMtrCmdMode mode, uint3
 }
 
 bool AP_ORCAMotor_Modbus::check_ping_response(){
-    // if (rx_buffer_count() < PING_RESPONSE_RX_LEN) {
-    //     //serial_display_uart->printf("not enough bytes: %d", rx_buffer_count());
-    //     return false;
-    // }
-    // const uint8_t expected_response[6] = {0x01, 0x08, 0x00, 0x00, 0x80, 0x1A };                    
-    // uint8_t transaction_frame[PING_RESPONSE_RX_LEN];
+    if (trans.rx_len < PING_RESPONSE_RX_LEN) {
+         AP_HAL::get_HAL().console->printf("Not enough bytes: %d\n", trans.rx_len);
+        return false;
+    }
+    const uint8_t expected_response[6] = {0x01, 0x08, 0x00, 0x00, 0x80, 0x1A };                    
 
-    // for (uint8_t i = 0; i < PING_RESPONSE_RX_LEN; i++) {
-    //     transaction_frame[i] = rx_buffer[rx_tail];
-    //     rx_tail = (rx_tail + 1) % ORCAMOTOR_RX_BYTES;
-    //     if (transaction_frame[i] != expected_response[i]){
-    //         //serial_display_uart->printf("byte mismatch: %c, %c", transaction_frame[i], ping_message[i]);
-    //         return false;
-    //     }
-    // }
+    for (uint8_t i = 0; i < PING_RESPONSE_RX_LEN; i++) {
+        if (trans.rx_buf[i] != expected_response[i]){
+            AP_HAL::get_HAL().console->printf("Byte mismatch: Expected %c, got %c\n", expected_response[i], trans.rx_buf[i]);
+            return false;
+        }
+    }
     return true;
 }
 
-bool AP_ORCAMotor_Modbus::check_motor_frame_response()
+bool AP_ORCAMotor_Modbus::check_ext_motor_frame_response()
 {
     if (trans.rx_len < EXT_MOTOR_FRAME_RX_LEN){
         AP_HAL::get_HAL().console->printf("Wrong byte count, got %d\n", trans.rx_len);
         return false;
     }
-
-    // uint8_t transaction_frame[EXT_MOTOR_FRAME_RX_LEN];
-    // for (uint8_t i = 0; i < EXT_MOTOR_FRAME_RX_LEN; i++) {
-    //     transaction_frame[i] = rx_buffer[rx_tail];
-    //     rx_tail = (rx_tail + 1) % ORCAMOTOR_RX_BYTES;
-    // }
 
     if (trans.rx_buf[0] != ORCA_SLAVE_ID){
         AP_HAL::get_HAL().console->printf("Wrong slave ID count, got %d\n", trans.rx_buf[0]);
@@ -151,29 +142,29 @@ bool AP_ORCAMotor_Modbus::check_motor_frame_response()
 	idx = parseint32(d, idx, (int32_t*)&_state.acceleration_mm_s_2);
 	idx = parseint16(d, idx, (int16_t*)&_state.board_temp_C);
 	idx = parseint16(d, idx, (int16_t*)&_state.coil_temp_C);
-	idx = parseint16(d, idx, &_state.voltage_V);
-	idx = parseint16(d, idx, &_state.power_W);
-	idx = parseint16(d, idx, &_state.mode_of_operation);
-    int16_t kin_status, kin_complete_count, placeholder;
-	idx = parseint16(d, idx, &kin_status);
-	idx = parseint16(d, idx, &kin_complete_count);
-	idx = parseint16(d, idx, &_state.errors);
-	idx = parseint16(d, idx, &placeholder);
+	idx = parseint16(d, idx, (int16_t*)&_state.mode_of_operation);
+	idx = parseint16(d, idx, (int16_t*)&_state.kin_status);
+	idx = parseint16(d, idx, (int16_t*)&_state.errors);
+	idx = parseint16(d, idx, (int16_t*)&_state.motor_status);
+    idx = parseint16(d, idx, (int16_t*)&_state.register_read_1);
+    idx = parseint16(d, idx, (int16_t*)&_state.register_read_2);
 
     return true;
 }
 
 void AP_ORCAMotor_Modbus::handle_stream() {
+
+    TransactionState exit_state = SENDING;
+
     switch (target_mode)
     {
     case MODE_SLEEP:
         //AP_HAL::get_HAL().console->printf("Stream target: SLEEP\n");
-        enqueue_extended_motor_frame(EXT_MODE_SLEEP, target_position, 0);
+        enqueue_extended_motor_frame(EXT_MODE_SLEEP, 0, 0);
         break;
     case MODE_FORCE:
-        target_mode = MODE_SLEEP;
-        trans.state = IDLE;
-        return;
+        enqueue_extended_motor_frame(EXT_MODE_FORCE, target_force, 0);
+        break;
     case MODE_POSITION:
         //AP_HAL::get_HAL().console->printf("Stream target: POSITION\n");
         enqueue_extended_motor_frame(EXT_MODE_POSITION, target_position, 0);
@@ -184,11 +175,11 @@ void AP_ORCAMotor_Modbus::handle_stream() {
     case MODE_AUTOZERO:
     default:
         target_mode = MODE_SLEEP;
-        trans.state = IDLE;
-        return;
+        exit_state = IDLE;
+        break;
     }
 
-    trans.state = SENDING;
+    trans.state = exit_state;
 }
 
 void AP_ORCAMotor_Modbus::transmit() {
@@ -246,13 +237,16 @@ void AP_ORCAMotor_Modbus::process_response() {
         case MB_WRITE_MULTI_REG:
             break;
         case MB_DIAG_QUERY_DATA:
+            if(!check_ping_response()) {
+                exit_state = ERROR;
+            }
             break;
         case ORCA_MNG_HS_STREAM:
             break;
         case ORCA_MTR_CMD_STREAM:
             break;
         case ORCA_EXT_MTR_STREAM:
-            if(!check_motor_frame_response()) {
+            if(!check_ext_motor_frame_response()) {
                 exit_state = ERROR;
             }
             break;

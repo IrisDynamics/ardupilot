@@ -37,7 +37,7 @@ enum MotorMode {
     MODE_AUTOZERO = 55
 };
 
-struct MotorData {
+struct ExtMotorData {
     int32_t force_mN;
     int32_t position_um;
     int32_t speed_mm_s;
@@ -45,9 +45,11 @@ struct MotorData {
     int16_t board_temp_C;
     int16_t coil_temp_C;
     int16_t mode_of_operation;
+    int16_t kin_status;
     int16_t errors;
-    int16_t power_W;
-    int16_t voltage_V;
+    int16_t motor_status;
+    int16_t register_read_1;
+    int16_t register_read_2;
 };
 
 class AP_ORCAMotor_Backend;
@@ -67,19 +69,25 @@ public:
     void init();
     void update();
 
-    void set_mode(MotorMode mode);
-    void set_mode(uint8_t instance, MotorMode mode);
-
     bool enabled();
     bool enabled(uint8_t instance);
 
     bool healthy();
     bool healthy(uint8_t instance);
 
+    void set_mode(MotorMode mode);
+    void set_mode(uint8_t instance, MotorMode mode);
+
+    void set_target_position_um(uint8_t instance, int32_t target_position);
+    void set_target_position_um(int32_t target_position);
+
+    void set_target_force_mN(uint8_t instance, int32_t target_force);
+    void set_target_force_mN(int32_t target_force);
+
     static const struct AP_Param::GroupInfo var_info[];
 
     AP_ORCAMotor_Params _params[AP_ORCAMOTOR_MAX_INSTANCES];
-    MotorData _state[AP_ORCAMOTOR_MAX_INSTANCES];
+    ExtMotorData _state[AP_ORCAMOTOR_MAX_INSTANCES];
 
 private:
     AP_ORCAMotor_Backend *get_instance(uint8_t instance) const;

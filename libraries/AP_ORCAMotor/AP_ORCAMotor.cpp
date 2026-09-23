@@ -31,6 +31,7 @@ AP_ORCAMotor::AP_ORCAMotor(){
 void AP_ORCAMotor::init(){
     _backends[0] = NEW_NOTHROW AP_ORCAMotor_Modbus(_params[0], 0, _state[0]);
     _backends[0]->init();
+    // TODO: Implement intialization via params
     // for (uint8_t i = 0; i < AP_ORCAMOTOR_MAX_INSTANCES; i++) {
     //     if (get_instance(i) != nullptr) {
     //         return;
@@ -58,88 +59,6 @@ void AP_ORCAMotor::update(){
         }
         backend->update();
     }
-    //uart_poll(motor_uart);
-    // uint8_t tx[8];
-
-    // tx[0] = 1;        // slave id
-    // tx[1] = 0x03;     // function
-    // tx[2] = 0x01;     // reg hi
-    // tx[3] = 0x52;     // reg lo
-    // tx[4] = 0x00;     // count hi
-    // tx[5] = 0x01;     // count lo
-
-    // uint16_t crc = generate_crc(tx, 6);
-    // tx[6] = crc & 0xFF;
-    // tx[7] = crc >> 8;
-
-    // motor_uart->write(tx, sizeof(tx));
-    // motor_uart->flush();
-    // uint8_t rx[7];
-    // while(motor_uart->available()){
-    //     uint8_t byte = motor_uart->read();
-    //     process_byte(byte);
-    // }
-    // serial_display_uart->write(rx, sizeof(rx));
-    // serial_display_uart->flush();
-    // uart_poll(motor_uart);
-    // //uint32_t elapsed_ms = AP_HAL::millis() - state_start_time;
-
-    // switch (current_state){
-    //     case OrcaState::PINGING:
-    //         enqueue_ping_message();
-    //         // if (check_ping_response(rx_buffer, rx_head, rx_tail)) {
-    //         //     printf("echo received");
-    //         // }
-    //         current_state = OrcaState::PING_WAIT;
-    //         state_start_time = AP_HAL::millis();
-    //         serial_display_uart->printf("ping sent");
-    //         serial_display_uart->flush();
-    //         break;
-
-    //     case OrcaState::PING_WAIT:
-    //         serial_display_uart->printf("ping wait");
-    //         serial_display_uart->flush();
-    //         if (check_ping_response()) {
-    //             current_state = OrcaState::SENDING;
-    //             serial_display_uart->printf("echo received");
-    //         } else if ((AP_HAL::millis() - state_start_time) > 1000) { // 100 ms timeout
-    //             current_state = OrcaState::PINGING; // retry ping
-    //         }
-    //     break;
-
-    //     case OrcaState::SENDING:
-    //         enqueue_extended_motor_frame(target_position,0);
-    //         state_start_time = AP_HAL::millis();
-    //         current_state = OrcaState::RECEIVING;
-    //     break;
-    //     case OrcaState::RECEIVING:
-    //         if (check_motor_frame_response()) {
-    //             current_state = OrcaState::SENDING;
-    //             //serial_display_uart->printf("motor frame received");
-    //         } else if ((AP_HAL::millis() - state_start_time) > 1000) { // 1000 ms timeout
-    //             serial_display_uart->printf("timeout reconnect");
-    //             current_state = OrcaState::PINGING; // retry ping
-    //         }
-    //     break;
-    //     case OrcaState::CONFIG:
-    //     break;
-    //     case OrcaState::IDLE:
-    //     break;
-    // }
-}
-
-void AP_ORCAMotor::set_mode(MotorMode mode) {
-    for (int instance = 0; instance < AP_ORCAMOTOR_MAX_INSTANCES; instance++) {
-        set_mode(instance, mode);
-    }
-}
-
-void AP_ORCAMotor::set_mode(uint8_t instance, MotorMode mode) {
-    auto* backend = get_instance(instance);
-    if(backend == nullptr) {
-        return;
-    }
-    backend->set_mode(mode);
 }
 
 bool AP_ORCAMotor::enabled() {
@@ -180,6 +99,49 @@ bool AP_ORCAMotor::healthy(uint8_t instance) {
         return false;
     }
     return backend->healthy();
+}
+
+void AP_ORCAMotor::set_mode(MotorMode mode) {
+    for (int instance = 0; instance < AP_ORCAMOTOR_MAX_INSTANCES; instance++) {
+        set_mode(instance, mode);
+    }
+}
+
+void AP_ORCAMotor::set_mode(uint8_t instance, MotorMode mode) {
+    auto* backend = get_instance(instance);
+    if(backend == nullptr) {
+        return;
+    }
+    backend->set_mode(mode);
+}
+
+void AP_ORCAMotor::set_target_position_um(int32_t target_position) {
+    for(int instance = 0; instance < AP_ORCAMOTOR_MAX_INSTANCES; instance++) {
+        set_target_position_um(instance, target_position);
+    }
+}  
+
+void AP_ORCAMotor::set_target_position_um(uint8_t instance, int32_t target_position) {
+    auto* backend = get_instance(instance);
+    if(backend == nullptr) {
+        return;
+    }
+    backend->set_target_position_um(target_position);
+}
+
+void AP_ORCAMotor::set_target_force_mN(int32_t target_force) {
+    for (int instance = 0; instance < AP_ORCAMOTOR_MAX_INSTANCES; instance++) {
+        set_target_force_mN(instance, target_force);
+    }
+    
+}
+
+void AP_ORCAMotor::set_target_force_mN(uint8_t instance, int32_t target_force) {
+    auto* backend = get_instance(instance);
+    if(backend == nullptr) {
+        return;
+    }
+    backend->set_target_force_mN(target_force);
 }
 
 AP_ORCAMotor_Backend* AP_ORCAMotor::get_instance(uint8_t instance) const {

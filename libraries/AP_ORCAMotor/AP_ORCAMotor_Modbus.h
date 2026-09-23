@@ -122,7 +122,7 @@ private:
     void enqueue_ping_message();
     void enqueue_extended_motor_frame(ExtMtrCmdMode mode, uint32_t data, uint16_t read_address);
     bool check_ping_response();
-    bool check_motor_frame_response();
+    bool check_ext_motor_frame_response();
 
     void uart_poll();
     void write(const FunctionCode fn, const uint8_t* const data = nullptr, const size_t data_len = 0, const uint8_t* const sub_fn = nullptr, const size_t sub_fn_len = 0);

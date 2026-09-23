@@ -45,11 +45,71 @@ AP_RTC rtc;
 AP_Logger logger;
 #endif
 
-
 static AP_SerialManager serial_manager;
 static AP_ORCAMotor motor;
 
 static uint32_t last_log = 0;
+
+char serial_buf[128];
+enum SerialCommand {
+    NONE,
+    MODE,
+    POSITION,
+    FORCE
+};
+
+void read_input() {
+    uint8_t i = 0;
+    while(hal.console->available()) {
+        uint8_t c;
+        if(hal.console->read(c)) {
+            serial_buf[i++] = (char)c;
+        }
+        if((char)c == '\n') {
+            serial_buf[i] = '\0';
+            break;
+        }
+    }
+    
+    if(i == 0) return;
+    hal.console->printf("Received: %s", serial_buf);
+    SerialCommand command = NONE;
+    long value;
+
+    if (strstr(serial_buf, "mode:")) {
+        command = MODE;
+    } else if (strstr(serial_buf, "force:")) {
+        command = FORCE;
+    } else if(strstr(serial_buf, "pos:")) {
+        command = POSITION;
+    }
+
+    char* tok = strtok(serial_buf, ":");
+    if(tok != NULL) {
+        tok = strtok(NULL, ":");
+    }
+    if(tok != NULL) {
+        value = atoi(tok);
+    }
+    
+    switch (command)
+    {
+    case MODE:
+        motor.set_mode((MotorMode)value);
+        hal.console->printf("Setting mode: %ld\n", value);
+        break;
+    case FORCE:
+        motor.set_target_force_mN(value);
+        hal.console->printf("Setting force target: %ld mN\n", value);
+        break;
+    case POSITION:
+        motor.set_target_position_um(value);
+        hal.console->printf("Setting position target: %ld um\n", value);
+        break;
+    default:
+        break;
+    }
+}
 
 void setup(void)
 {
@@ -73,55 +133,18 @@ void setup(void)
     serial_manager.init();
     hal.console->printf("Motor init\n");
     motor.init();
-    motor.set_mode(MODE_SLEEP);
+    motor.set_target_position_um(20000);
 }
-
-
-// static void test_uart(AP_HAL::UARTDriver *uart, const char *name)
-// {
-//     if (uart == nullptr) {
-//         // that UART doesn't exist on this platform
-//         return;
-//     }
-//     uint8_t tx[8];
-
-//     tx[0] = 1;        // slave id
-//     tx[1] = 0x03;     // function
-//     tx[2] = 0x00;     // reg hi
-//     tx[3] = 0x00;     // reg lo
-//     tx[4] = 0x00;     // count hi
-//     tx[5] = 0x02;     // count lo
-
-//     uint16_t crc = motor.generate_crc(tx, 6);
-//     tx[6] = crc & 0xFF;
-//     tx[7] = crc >> 8;
-
-//     uart->write(tx, sizeof(tx));
-//     uart->flush();
-//     //uart->printf("Hello on UART %s at %.3f seconds\n",
-//     //            name, (double)(AP_HAL::millis() * 0.001f));
-//     //uint8_t bytes[] = {0x01, 0x03, 0x01, 0x52, 0x00, 0x01, 0x00, 0x00};
-//     // uint8_t tx_buffer[] = {0x01, 0x06, 0x00, 0x03, 0x00, 0x05, 0xB9, 0xC9};
-//     // //uint16_t generated_crc_bytes = generate_crc(bytes, 6);
-//     // //bytes[6] = (uint8_t)(generated_crc_bytes>>8);
-//     // //bytes[7] = (uint8_t)generated_crc_bytes;
-
-//     // for (int i=0; i<8; i++){
-//     //     uart->write(tx_buffer[i]);
-//     //     hal.scheduler->delay_microseconds(833);
-//     // }
-    
-// }
-
-
 
 void loop(void)
 {
     motor.update();
     if(AP_HAL::millis() - last_log > 5000) {
         last_log = AP_HAL::millis();
-        hal.console->printf("MotorData:\nPos: %ld um\nForce: %ld mN\n", motor._state[0].position_um, motor._state[0].force_mN);
+        ExtMotorData* m = &motor._state[0];
+        hal.console->printf("MotorData:\nPos: %ld um\nForce: %ld mN\nSpd: %ld mm/s\nAccel: %ld mm/s2\n\n", m->position_um, m->force_mN, m->speed_mm_s, m->acceleration_mm_s_2);
     }
+    read_input();
     hal.scheduler->delay(50);
 }
 
