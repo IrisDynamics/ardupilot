@@ -133,12 +133,11 @@ void setup(void)
     serial_manager.init();
     hal.console->printf("Motor init\n");
     motor.init();
-    motor.set_target_position_um(20000);
+    //motor.set_target_position_um(20000);
 }
 
 void loop(void)
 {
-    motor.update();
     if(AP_HAL::millis() - last_log > 5000) {
         last_log = AP_HAL::millis();
         ExtMotorData* m = &motor._state[0];

@@ -1,14 +1,30 @@
 /* Table of CRC values for high–order byte */
 #include "AP_ORCAMotor_Modbus.h"
+
+#if HAL_ORCAMOTOR_ENABLED
 #include <AP_SerialManager/AP_SerialManager.h>
 #include <AP_HAL/AP_HAL.h> 
 
-#if HAL_ORCAMOTOR_ENABLED
+extern const AP_HAL::HAL& hal;
 
 void AP_ORCAMotor_Modbus::init() {
     //const AP_SerialManager &serial_manager = AP::serialmanager();
 
     //motor_uart = serial_manager.find_serial(AP_SerialManager::SerialProtocol_ORCAMotor, _instance);
+
+    if (_initialised) {
+        return;
+    }
+
+    // create background thread to process serial input and output
+    char thread_name[15];
+    hal.util->snprintf(thread_name, sizeof(thread_name), "orcamotor%u", (unsigned)_instance);
+    if (!hal.scheduler->thread_create(FUNCTOR_BIND_MEMBER(&AP_ORCAMotor_Modbus::thread_main, void), thread_name, 2048, AP_HAL::Scheduler::PRIORITY_RCOUT, 1)) {
+        return;
+    }
+}
+
+bool AP_ORCAMotor_Modbus::init_internals() {
     motor_uart = AP_HAL::get_HAL().serial(4);
 
     if(motor_uart != nullptr) {
@@ -16,6 +32,39 @@ void AP_ORCAMotor_Modbus::init() {
         motor_uart->set_flow_control(AP_HAL::UARTDriver::FLOW_CONTROL_DISABLE);
         motor_uart->set_stop_bits(1);
         motor_uart->configure_parity(UART_PARITY_EVEN);
+        return true;
+    }
+    return false;
+    
+}
+
+void AP_ORCAMotor_Modbus::thread_main() {
+    if(!init_internals()) {
+        return;
+    }
+    _initialised = true;
+
+    while(true) {
+        switch (trans.state) {
+            case IDLE:
+                handle_stream();
+                break;
+            case SENDING:
+                transmit();
+                break;
+            case RECEIVING:
+                uart_poll();
+                break;
+            case PROCESSING:
+                process_response();
+                break;
+            case ERROR:
+                AP_HAL::get_HAL().console->printf("Entered error state\n");
+                break;
+            default:
+                break;
+        }
+        hal.scheduler->delay(100);
     }
 }
 
@@ -80,6 +129,12 @@ void AP_ORCAMotor_Modbus::write(const FunctionCode fn, const uint8_t* const data
     memcpy(trans.tx_buf, buf, len);
     trans.tx_len = len;
     trans.fn = fn;
+
+    // Transaction t;
+    // memcpy(&t.tx_buf, buf, len);
+    // t.tx_len = len;
+    // t.fn = fn;
+    // _rb_write(&t);
     //AP_HAL::get_HAL().console->printf("Loaded transmit buffer\n");
 }
 
@@ -155,7 +210,12 @@ bool AP_ORCAMotor_Modbus::check_ext_motor_frame_response()
 void AP_ORCAMotor_Modbus::handle_stream() {
 
     TransactionState exit_state = SENDING;
-
+    // if(!_rb_empty()) {
+    //     _rb_read(&trans);
+    //     trans.state = SENDING;
+    //     return;
+    // }
+    
     switch (target_mode)
     {
     case MODE_SLEEP:

@@ -16,6 +16,7 @@
 #define EXT_MOTOR_FRAME_TX_LEN 7 
 #define EXT_MOTOR_FRAME_RX_LEN 42
 #define PING_RESPONSE_RX_LEN 6
+#define TRANS_BUF_SIZE 3
 
 static constexpr uint8_t crc_hi_table[256] = {
     0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81,
@@ -116,8 +117,14 @@ private:
         FunctionCode fn;
     };
 
-    AP_HAL::UARTDriver *motor_uart;
-    Transaction trans = {0};
+    struct TransactionQueue {
+        Transaction buffer[TRANS_BUF_SIZE];
+        size_t head;
+        size_t tail;
+    };
+
+    void thread_main();
+    bool init_internals();
 
     void enqueue_ping_message();
     void enqueue_extended_motor_frame(ExtMtrCmdMode mode, uint32_t data, uint16_t read_address);
@@ -167,5 +174,38 @@ private:
         }
         return false;
     }
+
+    // Control functions for using transaction ring buffer
+    inline void _rb_init() {
+        _trans.head = 0;
+        _trans.tail = 0;
+    }
+    inline bool _rb_empty() {
+        return _trans.head == _trans.tail;
+    }
+    inline bool _rb_full() {
+        return (_trans.head + 1) % TRANS_BUF_SIZE == _trans.tail;
+    }
+    inline bool _rb_write(Transaction* t) {
+        if(_rb_full()) {
+            return false;
+        }
+        memcpy(&_trans.buffer[_trans.head], t, sizeof(Transaction));
+        _trans.head = (_trans.head + 1) % TRANS_BUF_SIZE;
+        return true;
+    }
+    inline bool _rb_read(Transaction* t) {
+        if(_rb_empty()) {
+            return false;
+        }
+        memcpy(t, &_trans.buffer[_trans.tail], sizeof(Transaction));
+        _trans.tail = (_trans.tail + 1) % TRANS_BUF_SIZE;
+        return true;
+    }
+    
+    AP_HAL::UARTDriver *motor_uart;
+    Transaction trans = {0};
+    TransactionQueue _trans = {0};
+    bool _initialised = false;
 };
 #endif
