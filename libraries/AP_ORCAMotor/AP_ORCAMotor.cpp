@@ -24,34 +24,40 @@ const AP_Param::GroupInfo AP_ORCAMotor::var_info[] = {
 };
 
 AP_ORCAMotor::AP_ORCAMotor(){
-
     _singleton = this;
     AP_Param::setup_object_defaults(this, var_info);
 }
 
 void AP_ORCAMotor::init(){
+    _backends[0] = NEW_NOTHROW AP_ORCAMotor_Modbus(_params[0], 0, _state[0]);
+    _backends[0]->init();
+    // for (uint8_t i = 0; i < AP_ORCAMOTOR_MAX_INSTANCES; i++) {
+    //     if (get_instance(i) != nullptr) {
+    //         return;
+    //     }
+    // }
+    // uint8_t instance;
+    // for(instance = 0; instance < AP_ORCAMOTOR_MAX_INSTANCES; instance++) {
+    //     if (_params[instance].type.get() != 0) {
+    //         _backends[instance] = NEW_NOTHROW AP_ORCAMotor_Modbus(_params[instance], instance);
+    //     }
+    // }
 
-    for (uint8_t i = 0; i < AP_ORCAMOTOR_MAX_INSTANCES; i++) {
-        if (get_instance(i) != nullptr) {
-            return;
-        }
-    }
-
-    uint8_t instance;
-    for(instance = 0; instance < AP_ORCAMOTOR_MAX_INSTANCES; instance++) {
-        if (_params[instance].type.get() != 0) {
-            _backends[instance] = NEW_NOTHROW AP_ORCAMotor_Modbus(_params[instance], instance);
-        }
-    }
-
-    for(instance = 0; instance < AP_ORCAMOTOR_MAX_INSTANCES; instance++) {
-        if (_backends[instance] != nullptr) {
-            _backends[instance]->init();
-        }
-    }
+    // for(instance = 0; instance < AP_ORCAMOTOR_MAX_INSTANCES; instance++) {
+    //     if (_backends[instance] != nullptr) {
+    //         _backends[instance]->init();
+    //     }
+    // }
 }
 
 void AP_ORCAMotor::update(){
+    for(int instance = 0; instance < AP_ORCAMOTOR_MAX_INSTANCES; instance++) {
+        auto* backend = get_instance(instance);
+        if(backend == nullptr) {
+            continue;
+        }
+        backend->update();
+    }
     //uart_poll(motor_uart);
     // uint8_t tx[8];
 

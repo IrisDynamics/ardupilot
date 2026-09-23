@@ -45,8 +45,11 @@ AP_RTC rtc;
 AP_Logger logger;
 #endif
 
-static AP_ORCAMotor motor;
+
 static AP_SerialManager serial_manager;
+static AP_ORCAMotor motor;
+
+static uint32_t last_log = 0;
 
 void setup(void)
 {
@@ -66,9 +69,11 @@ void setup(void)
     board_led.init();
 #endif
 
-    // Initialize the UART for GPS system
+    hal.console->printf("Serial manager init\n");
     serial_manager.init();
+    hal.console->printf("Motor init\n");
     motor.init();
+    motor.set_mode(MODE_SLEEP);
 }
 
 
@@ -113,9 +118,11 @@ void setup(void)
 void loop(void)
 {
     motor.update();
-    ::printf("Setting sleep mode");
-    motor.set_mode(MODE_SLEEP);
-    hal.scheduler->delay(1000);
+    if(AP_HAL::millis() - last_log > 5000) {
+        last_log = AP_HAL::millis();
+        hal.console->printf("MotorData:\nPos: %ld um\nForce: %ld mN\n", motor._state[0].position_um, motor._state[0].force_mN);
+    }
+    hal.scheduler->delay(50);
 }
 
 AP_HAL_MAIN();

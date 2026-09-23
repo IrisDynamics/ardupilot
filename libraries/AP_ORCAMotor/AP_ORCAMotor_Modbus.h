@@ -8,6 +8,7 @@
 #define ORCAMOTOR_BAUD
 #define ORCAMOTOR_RX_BYTES 256
 #define ORCAMOTOR_TX_BYTES 128
+#define ORCAMOTOR_RX_TIMEOUT_MS 1000
 #define UART_PARITY_EVEN 2
 #define ORCA_SLAVE_ID 0x01
 
@@ -65,24 +66,19 @@ public:
 
     void init() override;
     bool healthy() override;
-    void set_mode(MotorMode mode) override;
-
-    void enqueue_ping_message();
-    void enqueue_extended_motor_frame(uint32_t position_um, uint16_t read_address);
-    bool check_ping_response();
-    bool check_motor_frame_response();
+    void update() override;
 
 private:
-    enum class OrcaState : uint8_t{
-        PINGING,
-        PING_WAIT,
-        CONFIG,
+    enum TransactionState {
+        IDLE,
         SENDING,
         RECEIVING,
-        IDLE
+        PROCESSING,
+        ERROR
     };
 
     enum FunctionCode {
+        NONE = 0, // Don't use
         MB_READ_SINGLE_REG = 0x03,
         MB_WRITE_SINGLE_REG = 0x06,
         MB_WRITE_MULTI_REG = 0x10,
@@ -110,32 +106,31 @@ private:
         CTRL_REG_4 = 4
     };
 
+    struct Transaction {
+        uint8_t tx_buf[ORCAMOTOR_TX_BYTES];
+        uint8_t tx_len;
+        uint8_t rx_buf[ORCAMOTOR_RX_BYTES];
+        uint8_t rx_len;
+        uint32_t rx_entry_ms;
+        TransactionState state;
+        FunctionCode fn;
+    };
+
     AP_HAL::UARTDriver *motor_uart;
-    
-    OrcaState current_state = OrcaState::IDLE;
-    uint32_t state_start_time;
-    MotorData motor_data;
+    Transaction trans = {0};
 
-    uint8_t rx_buffer[ORCAMOTOR_RX_BYTES];
-    volatile uint16_t rx_head = 0, rx_tail = 0;
+    void enqueue_ping_message();
+    void enqueue_extended_motor_frame(ExtMtrCmdMode mode, uint32_t data, uint16_t read_address);
+    bool check_ping_response();
+    bool check_motor_frame_response();
 
-    void uart_poll(AP_HAL::UARTDriver* uart) {
-        while (uart->available()) {
-
-            uint8_t b = uart->read();
-            uint16_t next = (rx_head + 1) % ORCAMOTOR_RX_BYTES;
-
-            if (next != rx_tail) {      // prevent overflow
-                rx_buffer[rx_head] = b;
-                rx_head = next;
-            }
-        }
-    }
-    uint16_t rx_buffer_count();
-
-    void write(const uint8_t* const buf, const size_t len);
+    void uart_poll();
     void write(const FunctionCode fn, const uint8_t* const data = nullptr, const size_t data_len = 0, const uint8_t* const sub_fn = nullptr, const size_t sub_fn_len = 0);
+    void transmit();
+    void process_response();
+    void handle_stream();
 
+    // Helper functions for processing;
     inline int parseint32(uint8_t* data, int start_index, int32_t* value)
 	{
 		*value = (data[start_index]    << 24)
