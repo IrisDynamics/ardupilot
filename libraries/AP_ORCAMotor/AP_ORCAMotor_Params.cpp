@@ -10,7 +10,7 @@ const AP_Param::GroupInfo AP_ORCAMotor_Params::var_info[] = {
     AP_GROUPINFO("D_GAIN_PID", 5, AP_ORCAMotor_Params, d_gain_pid, 100),
     AP_GROUPINFO("SPEED_LIMIT", 6, AP_ORCAMotor_Params, speed_limit, 1000),
     AP_GROUPINFO("ACCEL_LIMIT", 7, AP_ORCAMotor_Params, accel_limit, 1000),
-    AP_GROUPINFO("DECCEL_LIMIT", 8, AP_ORCAMotor_Params, deccel_limit, 1000),
+    AP_GROUPINFO("DECCEL_LIMIT", 8, AP_ORCAMotor_Params, decel_limit, 1000),
     AP_GROUPINFO("SOFTSTART_MS", 9, AP_ORCAMotor_Params, softstart_duration, 3000),
     AP_GROUPINFO("INVERT_POS", 10, AP_ORCAMotor_Params, invert_position, 0),
     AP_GROUPINFO("AZERO_MODE", 11, AP_ORCAMotor_Params, autozero_mode, 0),
