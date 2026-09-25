@@ -7,7 +7,7 @@
 
 #define ORCAMOTOR_BAUD
 #define ORCAMOTOR_RX_BYTES 256
-#define ORCAMOTOR_TX_BYTES 128
+#define ORCAMOTOR_TX_BYTES 32
 #define ORCAMOTOR_RX_TIMEOUT_MS 1000
 #define UART_PARITY_EVEN 2
 #define ORCA_SLAVE_ID 0x01
@@ -17,7 +17,7 @@
 #define EXT_MOTOR_FRAME_RX_LEN 42
 #define MULTI_REG_WRITE_RX_LEN 8
 #define PING_RESPONSE_RX_LEN 6
-#define TRANS_BUF_SIZE 3
+#define TRANS_QUEUE_SIZE 16
 
 static constexpr uint8_t crc_hi_table[256] = {
     0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81,
@@ -109,7 +109,18 @@ private:
         CTRL_REG_3 = 3,
         CTRL_REG_4 = 4,
         USER_MAX_FORCE = 140,
-        USER_MAX_FORCE_H = 141
+        USER_MAX_FORCE_H = 141,
+        PC_PGAIN = 133,
+        PC_IGAIN = 134,
+        PC_DVGAIN = 135,
+        PC_SOFTSTART_PERIOD = 150,
+        POS_MAX_VEL = 153,
+        POS_MAX_ACCEL = 154,
+        POS_MAX_DECEL = 155,
+        ZERO_MODE = 171,
+        AUTO_ZERO_FORCE_N = 172,
+        AUTO_ZERO_EXIT_MODE = 173,
+        AUTO_ZERO_SPEED_MMPS = 177
     };
 
     enum CtrlReg0Fn {
@@ -136,7 +147,7 @@ private:
     };
 
     struct TransactionQueue {
-        Transmission buffer[TRANS_BUF_SIZE];
+        Transmission buffer[TRANS_QUEUE_SIZE];
         size_t head;
         size_t tail;
     };
@@ -153,8 +164,8 @@ private:
     void uart_poll();
     void write(const FunctionCode fn, const uint8_t* const data = nullptr, const size_t data_len = 0, const uint8_t* const sub_fn = nullptr, const size_t sub_fn_len = 0, bool queued = false);
     void writeQueue(const FunctionCode fn, const uint8_t* const data = nullptr, const size_t data_len = 0, const uint8_t* const sub_fn = nullptr, const size_t sub_fn_len = 0);
-    void writeSingleReg(const uint16_t reg, const int16_t val);
-    void writeMultiReg(const uint16_t reg, const int16_t* const val, const size_t len);
+    void writeSingleReg(const RegisterMap reg, const int16_t val);
+    void writeMultiReg(const RegisterMap reg, const int16_t* const val, const size_t len);
     void transmit();
     void process_response();
     void handle_stream();
@@ -197,6 +208,15 @@ private:
         return false;
     }
 
+    inline void int32_to_arr_BE(int32_t v, int16_t b[2]) {
+        b[0] = (int16_t)(v >> 16);
+        b[1] = (int16_t)(v & 0xFFFF);
+    }
+    inline void int32_to_arr_LE(int32_t v, int16_t b[2]) {
+        b[0] = (int16_t)(v & 0xFFFF);
+        b[1] = (int16_t)(v >> 16);
+    }
+
     // Control functions for using transaction ring buffer
     inline void _rb_init() {
         _trans.head = 0;
@@ -206,7 +226,7 @@ private:
         return _trans.head == _trans.tail;
     }
     inline bool _rb_full() {
-        return (_trans.head + 1) % TRANS_BUF_SIZE == _trans.tail;
+        return (_trans.head + 1) % TRANS_QUEUE_SIZE == _trans.tail;
     }
     inline bool _rb_write(Transmission* t) {
         if (!_mutex.take_nonblocking()) {
@@ -217,7 +237,7 @@ private:
             return false;
         }
         memcpy(&_trans.buffer[_trans.head], t, sizeof(Transmission));
-        _trans.head = (_trans.head + 1) % TRANS_BUF_SIZE;
+        _trans.head = (_trans.head + 1) % TRANS_QUEUE_SIZE;
         _mutex.give();
         return true;
     }
@@ -230,7 +250,7 @@ private:
         memcpy(t->tx_buf, &_trans.buffer[_trans.tail].tx_buf, sizeof(Transmission::tx_buf));
         t->tx_len = _trans.buffer[_trans.tail].tx_len;
         t->fn = _trans.buffer[_trans.tail].fn;
-        _trans.tail = (_trans.tail + 1) % TRANS_BUF_SIZE;
+        _trans.tail = (_trans.tail + 1) % TRANS_QUEUE_SIZE;
         _mutex.give();
         return true;
     }

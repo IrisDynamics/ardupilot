@@ -117,6 +117,7 @@ void setup(void)
       start all UARTs at orca default with default buffer sizes
     */
     hal.console->printf("ORCAMotor Test\n");
+    hal.scheduler->delay(3000);
 
 #if AP_SIM_ENABLED
     sitl.init();

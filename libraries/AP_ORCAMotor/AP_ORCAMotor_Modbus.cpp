@@ -46,11 +46,21 @@ void AP_ORCAMotor_Modbus::clear_motor_errors() {
 }
 
 void AP_ORCAMotor_Modbus::startup_config() {
-    int16_t force[2] = {
-        (int16_t)(_params.force_saturation.get() & 0xFFFF),
-        (int16_t)(_params.force_saturation.get() >> 16)
-    };
-    writeMultiReg(USER_MAX_FORCE, force, 2);
+    int16_t force[2];
+    int32_to_arr_LE(_params.force_saturation.get(), force);
+    writeMultiReg(USER_MAX_FORCE, force, 2); //working
+    writeSingleReg(PC_PGAIN, _params.p_gain_pid.get()); //working
+    writeSingleReg(PC_IGAIN, _params.i_gain_pid.get()); //working
+    writeSingleReg(PC_DVGAIN, _params.d_gain_pid.get()); //working
+    writeSingleReg(POS_MAX_VEL, _params.speed_limit.get()); //working
+    writeSingleReg(POS_MAX_ACCEL, _params.accel_limit.get()); //working
+    writeSingleReg(POS_MAX_DECEL, _params.decel_limit.get()); //not working
+    writeSingleReg(PC_SOFTSTART_PERIOD, _params.softstart_duration.get()); //working
+    //TODO: read CTRL-REG for INVERT POS status
+    writeSingleReg(ZERO_MODE, _params.autozero_mode.get());
+    writeSingleReg(AUTO_ZERO_FORCE_N, _params.autozero_force.get());
+    writeSingleReg(AUTO_ZERO_SPEED_MMPS, _params.autozero_speed.get());
+    writeSingleReg(AUTO_ZERO_EXIT_MODE, _params.autozero_exit_mode.get());    
 }
 
 void AP_ORCAMotor_Modbus::thread_main() {
@@ -116,7 +126,7 @@ void AP_ORCAMotor_Modbus::writeQueue(const FunctionCode fn, const uint8_t* const
     return write(fn, data, data_len, sub_fn, sub_fn_len, true);
 }
 
-void AP_ORCAMotor_Modbus::writeSingleReg(const uint16_t reg, const int16_t val) {
+void AP_ORCAMotor_Modbus::writeSingleReg(const RegisterMap reg, const int16_t val) {
     uint8_t _reg[2] = {
         (uint8_t)(reg >> 8),
         (uint8_t)(reg & 0xFF)
@@ -128,7 +138,7 @@ void AP_ORCAMotor_Modbus::writeSingleReg(const uint16_t reg, const int16_t val) 
     return writeQueue(MB_WRITE_SINGLE_REG, _val, 2, _reg, 2);
 }
 
-void AP_ORCAMotor_Modbus:: writeMultiReg(const uint16_t reg, const int16_t* const val, const size_t len) {
+void AP_ORCAMotor_Modbus:: writeMultiReg(const RegisterMap reg, const int16_t* const val, const size_t len) {
     //Convert 16 bit reg into array of {REG_HIGH, REG_LOW, NUM_REGS_HIGH, NUM_REGS_LOW, NUM_BYTES}
     const uint8_t header_len = 5;
     const uint8_t num_bytes = 2*len;
@@ -190,7 +200,9 @@ void AP_ORCAMotor_Modbus::write(const FunctionCode fn, const uint8_t* const data
     p_buf[idx++] = crc_bytes[1];
 
     if(queued) {
-        _rb_write(&t);
+        if(!_rb_write(&t)) {
+            AP_HAL::get_HAL().console->printf("Failed to write transmission to queue\n");
+        }
     } 
 
     //AP_HAL::get_HAL().console->printf("Loaded transmit buffer\n");
