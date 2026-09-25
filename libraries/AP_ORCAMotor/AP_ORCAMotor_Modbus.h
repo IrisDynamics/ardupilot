@@ -68,6 +68,7 @@ public:
     void init() override;
     bool healthy() override;
     void update() override;
+    void clear_motor_errors() override;
 
 private:
     enum TransactionState {
@@ -107,6 +108,13 @@ private:
         CTRL_REG_4 = 4
     };
 
+    enum CtrlReg0Fn {
+        CR0_RESET = 1,
+        CR0_CLEAR_ERR = 2,
+        CR0_ZERO_POS = 4,
+        CR0_INVERT_POS = 8
+    };
+
     struct Transaction {
         uint8_t tx_buf[ORCAMOTOR_TX_BYTES];
         uint8_t tx_len;
@@ -132,7 +140,9 @@ private:
     bool check_ext_motor_frame_response();
 
     void uart_poll();
-    void write(const FunctionCode fn, const uint8_t* const data = nullptr, const size_t data_len = 0, const uint8_t* const sub_fn = nullptr, const size_t sub_fn_len = 0);
+    void write(const FunctionCode fn, const uint8_t* const data = nullptr, const size_t data_len = 0, const uint8_t* const sub_fn = nullptr, const size_t sub_fn_len = 0, bool queued = false);
+    void writeQueue(const FunctionCode fn, const uint8_t* const data = nullptr, const size_t data_len = 0, const uint8_t* const sub_fn = nullptr, const size_t sub_fn_len = 0);
+    void writeSingleReg(const uint16_t reg, const uint16_t val);
     void transmit();
     void process_response();
     void handle_stream();
@@ -187,19 +197,27 @@ private:
         return (_trans.head + 1) % TRANS_BUF_SIZE == _trans.tail;
     }
     inline bool _rb_write(Transaction* t) {
+        if (!_mutex.take_nonblocking()) {
+            return false;
+        }
         if(_rb_full()) {
+            _mutex.give();
             return false;
         }
         memcpy(&_trans.buffer[_trans.head], t, sizeof(Transaction));
         _trans.head = (_trans.head + 1) % TRANS_BUF_SIZE;
+        _mutex.give();
         return true;
     }
     inline bool _rb_read(Transaction* t) {
+        _mutex.take_blocking();
         if(_rb_empty()) {
+            _mutex.give();
             return false;
         }
         memcpy(t, &_trans.buffer[_trans.tail], sizeof(Transaction));
         _trans.tail = (_trans.tail + 1) % TRANS_BUF_SIZE;
+        _mutex.give();
         return true;
     }
     
@@ -207,5 +225,6 @@ private:
     Transaction trans = {0};
     TransactionQueue _trans = {0};
     bool _initialised = false;
+    HAL_Semaphore _mutex;
 };
 #endif

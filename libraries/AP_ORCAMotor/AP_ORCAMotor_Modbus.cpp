@@ -22,6 +22,8 @@ void AP_ORCAMotor_Modbus::init() {
     if (!hal.scheduler->thread_create(FUNCTOR_BIND_MEMBER(&AP_ORCAMotor_Modbus::thread_main, void), thread_name, 2048, AP_HAL::Scheduler::PRIORITY_RCOUT, 1)) {
         return;
     }
+
+    clear_motor_errors();
 }
 
 bool AP_ORCAMotor_Modbus::init_internals() {
@@ -34,8 +36,12 @@ bool AP_ORCAMotor_Modbus::init_internals() {
         motor_uart->configure_parity(UART_PARITY_EVEN);
         return true;
     }
-    return false;
-    
+    return false;   
+}
+
+void AP_ORCAMotor_Modbus::clear_motor_errors() {
+    writeSingleReg(CTRL_REG_0, CR0_CLEAR_ERR);
+    set_mode(MODE_SLEEP);
 }
 
 void AP_ORCAMotor_Modbus::thread_main() {
@@ -60,11 +66,12 @@ void AP_ORCAMotor_Modbus::thread_main() {
                 break;
             case ERROR:
                 AP_HAL::get_HAL().console->printf("Entered error state\n");
+                trans.state = IDLE;
                 break;
             default:
                 break;
         }
-        hal.scheduler->delay(100);
+        hal.scheduler->delay(50);
     }
 }
 
@@ -96,8 +103,24 @@ void AP_ORCAMotor_Modbus::update() {
     }
 }
 
+void AP_ORCAMotor_Modbus::writeQueue(const FunctionCode fn, const uint8_t* const data, const size_t data_len, const uint8_t* const sub_fn, const size_t sub_fn_len) {
+    write(fn, data, data_len, sub_fn, sub_fn_len, true);
+}
+
+void AP_ORCAMotor_Modbus::writeSingleReg(const uint16_t reg, const uint16_t val) {
+    uint8_t _reg[2] = {
+        (uint8_t)(reg >> 8),
+        (uint8_t)(reg & 0xFF)
+    };
+    uint8_t _val[2] = {
+        (uint8_t)(val >> 8),
+        (uint8_t)(val & 0xFF)
+    };
+    writeQueue(MB_WRITE_SINGLE_REG, _val, 2, _reg, 2);
+}
+
 // Sub-functions are specified for some ORCA specific packets
-void AP_ORCAMotor_Modbus::write(const FunctionCode fn, const uint8_t* const data, const size_t data_len, const uint8_t* const sub_fn, const size_t sub_fn_len) {
+void AP_ORCAMotor_Modbus::write(const FunctionCode fn, const uint8_t* const data, const size_t data_len, const uint8_t* const sub_fn, const size_t sub_fn_len, bool queued) {
     // Check message sizing
     size_t len = 2 + data_len + sub_fn_len + 2; //Slave ID, Fn code, and 2 bytes for CRC
     if(len > ORCAMOTOR_TX_BYTES) {
@@ -125,16 +148,29 @@ void AP_ORCAMotor_Modbus::write(const FunctionCode fn, const uint8_t* const data
     crc_bytes[1] = crc >> 8;
     buf[idx++] = crc_bytes[0];
     buf[idx++] = crc_bytes[1];
+
+    if(queued) {
+        Transaction t;
+        memcpy(t.tx_buf, buf, len);
+        t.tx_len = len;
+        t.fn = fn;
+        _rb_write(&t);
+    } else {
+        memcpy(trans.tx_buf, buf, len);
+        trans.tx_len = len;
+        trans.fn = fn;
+    }
     // Update the transaction item
-    memcpy(trans.tx_buf, buf, len);
-    trans.tx_len = len;
-    trans.fn = fn;
+    
+
 
     // Transaction t;
     // memcpy(&t.tx_buf, buf, len);
     // t.tx_len = len;
     // t.fn = fn;
-    // _rb_write(&t);
+    // if(!_rb_write(&t)) {
+    //     AP_HAL::get_HAL().console->printf("Failed to load transaction to queue\n");
+    // }
     //AP_HAL::get_HAL().console->printf("Loaded transmit buffer\n");
 }
 
@@ -209,12 +245,17 @@ bool AP_ORCAMotor_Modbus::check_ext_motor_frame_response()
 
 void AP_ORCAMotor_Modbus::handle_stream() {
 
-    TransactionState exit_state = SENDING;
-    // if(!_rb_empty()) {
-    //     _rb_read(&trans);
-    //     trans.state = SENDING;
-    //     return;
-    // }
+    if(!_rb_empty()) {
+        _rb_read(&trans);
+        AP_HAL::get_HAL().console->printf("Transmitting queued message:\n");
+        for(int i = 0; i < trans.tx_len; i++) {
+            AP_HAL::get_HAL().console->printf("%x ", trans.tx_buf[i]);
+        }
+        AP_HAL::get_HAL().console->printf("\n");
+        //AP_HAL::get_HAL().console->printf("Read transaction\nLen: %u\n", trans.tx_len);
+        trans.state = SENDING;
+        return;
+    }
     
     switch (target_mode)
     {
@@ -235,11 +276,11 @@ void AP_ORCAMotor_Modbus::handle_stream() {
     case MODE_AUTOZERO:
     default:
         target_mode = MODE_SLEEP;
-        exit_state = IDLE;
-        break;
+        trans.state = IDLE;
+        return;;
     }
 
-    trans.state = exit_state;
+    trans.state = SENDING;
 }
 
 void AP_ORCAMotor_Modbus::transmit() {
@@ -283,7 +324,7 @@ void AP_ORCAMotor_Modbus::uart_poll() {
 
 void AP_ORCAMotor_Modbus::process_response() {
     if(bad_crc(trans.rx_buf, trans.rx_len)) {
-        AP_HAL::get_HAL().console->printf("Received bad CRC!:\n");
+        AP_HAL::get_HAL().console->printf("Received bad CRC!\n");
         trans.state = ERROR;
         return;
     }
