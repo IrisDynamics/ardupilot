@@ -125,8 +125,14 @@ private:
         FunctionCode fn;
     };
 
+    struct Transmission {
+        uint8_t tx_buf[ORCAMOTOR_TX_BYTES];
+        uint8_t tx_len;
+        FunctionCode fn;
+    };
+
     struct TransactionQueue {
-        Transaction buffer[TRANS_BUF_SIZE];
+        Transmission buffer[TRANS_BUF_SIZE];
         size_t head;
         size_t tail;
     };
@@ -196,7 +202,7 @@ private:
     inline bool _rb_full() {
         return (_trans.head + 1) % TRANS_BUF_SIZE == _trans.tail;
     }
-    inline bool _rb_write(Transaction* t) {
+    inline bool _rb_write(Transmission* t) {
         if (!_mutex.take_nonblocking()) {
             return false;
         }
@@ -204,7 +210,7 @@ private:
             _mutex.give();
             return false;
         }
-        memcpy(&_trans.buffer[_trans.head], t, sizeof(Transaction));
+        memcpy(&_trans.buffer[_trans.head], t, sizeof(Transmission));
         _trans.head = (_trans.head + 1) % TRANS_BUF_SIZE;
         _mutex.give();
         return true;
@@ -215,7 +221,9 @@ private:
             _mutex.give();
             return false;
         }
-        memcpy(t, &_trans.buffer[_trans.tail], sizeof(Transaction));
+        memcpy(t->tx_buf, &_trans.buffer[_trans.tail].tx_buf, sizeof(Transmission::tx_buf));
+        t->tx_len = _trans.buffer[_trans.tail].tx_len;
+        t->fn = _trans.buffer[_trans.tail].fn;
         _trans.tail = (_trans.tail + 1) % TRANS_BUF_SIZE;
         _mutex.give();
         return true;

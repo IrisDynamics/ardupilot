@@ -130,7 +130,7 @@ void AP_ORCAMotor_Modbus::write(const FunctionCode fn, const uint8_t* const data
     // Allocate buffer and initial index
     uint8_t* p_buf;
     size_t idx = 0;
-    Transaction t;
+    Transmission t;
 
     if(queued) {
         p_buf = t.tx_buf;
