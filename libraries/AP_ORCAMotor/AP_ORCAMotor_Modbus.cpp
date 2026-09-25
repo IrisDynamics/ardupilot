@@ -128,49 +128,43 @@ void AP_ORCAMotor_Modbus::write(const FunctionCode fn, const uint8_t* const data
         return;
     }
     // Allocate buffer and initial index
-    uint8_t buf[len];
+    uint8_t* p_buf;
     size_t idx = 0;
-    // Build message byte-by-byte 
-    buf[idx++] = ORCA_SLAVE_ID;
-    buf[idx++] = fn;
-    if(sub_fn != nullptr && sub_fn_len) {
-        memcpy(&buf[idx], sub_fn, sub_fn_len);
-        idx += sub_fn_len;
-    }
-    if(data != nullptr && data_len) {
-        memcpy(&buf[idx], data, data_len);
-        idx += data_len;
-    }
-    // Calculate and add CRC
-    uint16_t crc = generate_crc(buf, len-2);
-    uint8_t crc_bytes[2];
-    crc_bytes[0] = crc & 0xFF;
-    crc_bytes[1] = crc >> 8;
-    buf[idx++] = crc_bytes[0];
-    buf[idx++] = crc_bytes[1];
+    Transaction t;
 
     if(queued) {
-        Transaction t;
-        memcpy(t.tx_buf, buf, len);
+        p_buf = t.tx_buf;
         t.tx_len = len;
         t.fn = fn;
-        _rb_write(&t);
     } else {
-        memcpy(trans.tx_buf, buf, len);
+        p_buf = trans.tx_buf;
         trans.tx_len = len;
         trans.fn = fn;
     }
-    // Update the transaction item
     
+    // Build message byte-by-byte 
+    p_buf[idx++] = ORCA_SLAVE_ID;
+    p_buf[idx++] = fn;
+    if(sub_fn != nullptr && sub_fn_len) {
+        memcpy(&p_buf[idx], sub_fn, sub_fn_len);
+        idx += sub_fn_len;
+    }
+    if(data != nullptr && data_len) {
+        memcpy(&p_buf[idx], data, data_len);
+        idx += data_len;
+    }
+    // Calculate and add CRC
+    uint16_t crc = generate_crc(p_buf, len-2);
+    uint8_t crc_bytes[2];
+    crc_bytes[0] = crc & 0xFF;
+    crc_bytes[1] = crc >> 8;
+    p_buf[idx++] = crc_bytes[0];
+    p_buf[idx++] = crc_bytes[1];
 
+    if(queued) {
+        _rb_write(&t);
+    } 
 
-    // Transaction t;
-    // memcpy(&t.tx_buf, buf, len);
-    // t.tx_len = len;
-    // t.fn = fn;
-    // if(!_rb_write(&t)) {
-    //     AP_HAL::get_HAL().console->printf("Failed to load transaction to queue\n");
-    // }
     //AP_HAL::get_HAL().console->printf("Loaded transmit buffer\n");
 }
 
