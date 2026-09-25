@@ -24,6 +24,7 @@ void AP_ORCAMotor_Modbus::init() {
     }
 
     clear_motor_errors();
+    startup_config();
 }
 
 bool AP_ORCAMotor_Modbus::init_internals() {
@@ -42,6 +43,14 @@ bool AP_ORCAMotor_Modbus::init_internals() {
 void AP_ORCAMotor_Modbus::clear_motor_errors() {
     writeSingleReg(CTRL_REG_0, CR0_CLEAR_ERR);
     set_mode(MODE_SLEEP);
+}
+
+void AP_ORCAMotor_Modbus::startup_config() {
+    int16_t force[2] = {
+        (int16_t)(_params.force_saturation.get() & 0xFFFF),
+        (int16_t)(_params.force_saturation.get() >> 16)
+    };
+    writeMultiReg(USER_MAX_FORCE, force, 2);
 }
 
 void AP_ORCAMotor_Modbus::thread_main() {
@@ -104,10 +113,10 @@ void AP_ORCAMotor_Modbus::update() {
 }
 
 void AP_ORCAMotor_Modbus::writeQueue(const FunctionCode fn, const uint8_t* const data, const size_t data_len, const uint8_t* const sub_fn, const size_t sub_fn_len) {
-    write(fn, data, data_len, sub_fn, sub_fn_len, true);
+    return write(fn, data, data_len, sub_fn, sub_fn_len, true);
 }
 
-void AP_ORCAMotor_Modbus::writeSingleReg(const uint16_t reg, const uint16_t val) {
+void AP_ORCAMotor_Modbus::writeSingleReg(const uint16_t reg, const int16_t val) {
     uint8_t _reg[2] = {
         (uint8_t)(reg >> 8),
         (uint8_t)(reg & 0xFF)
@@ -116,7 +125,26 @@ void AP_ORCAMotor_Modbus::writeSingleReg(const uint16_t reg, const uint16_t val)
         (uint8_t)(val >> 8),
         (uint8_t)(val & 0xFF)
     };
-    writeQueue(MB_WRITE_SINGLE_REG, _val, 2, _reg, 2);
+    return writeQueue(MB_WRITE_SINGLE_REG, _val, 2, _reg, 2);
+}
+
+void AP_ORCAMotor_Modbus:: writeMultiReg(const uint16_t reg, const int16_t* const val, const size_t len) {
+    //Convert 16 bit reg into array of {REG_HIGH, REG_LOW, NUM_REGS_HIGH, NUM_REGS_LOW, NUM_BYTES}
+    const uint8_t header_len = 5;
+    const uint8_t num_bytes = 2*len;
+    uint8_t _reg[header_len] = { 
+        (uint8_t)(reg >> 8),
+        (uint8_t)(reg & 0xFF), 
+        (uint8_t)(len >> 8),
+        (uint8_t)(len & 0xFF),
+        num_bytes
+    };
+    uint8_t _val[num_bytes];
+    for(int i = 0; i < len; i++) {
+        _val[2*i] = (uint8_t)((val[i] >> 8) & 0xFF);
+        _val[2*i+1] = (uint8_t)(val[i] & 0xFF);
+    }
+    return writeQueue(MB_WRITE_MULTI_REG, _val, num_bytes, _reg, header_len);
 }
 
 // Sub-functions are specified for some ORCA specific packets
@@ -237,13 +265,38 @@ bool AP_ORCAMotor_Modbus::check_ext_motor_frame_response()
     return true;
 }
 
+// Device reponds with {slave_id, starting address, num_regs, crc}
+bool AP_ORCAMotor_Modbus::check_multi_reg_write_response() {
+    if (trans.rx_len < MULTI_REG_WRITE_RX_LEN) {
+        AP_HAL::get_HAL().console->printf("Wrong byte count, got %d\n", trans.rx_len);
+        return false;
+    }
+    if (trans.rx_buf[0] != ORCA_SLAVE_ID) {
+        AP_HAL::get_HAL().console->printf("Wrong slave ID count, got %d\n", trans.rx_buf[0]);
+        return false;
+    }
+    if (trans.rx_buf[1] != MB_WRITE_MULTI_REG) {
+        AP_HAL::get_HAL().console->printf("Wrong function code, got %d\n", trans.rx_buf[1]);
+        return false;
+    }
+    if(memcmp(&trans.rx_buf[2], &trans.tx_buf[2], sizeof(uint16_t)) != 0) {
+        AP_HAL::get_HAL().console->printf("Wrong initial address, got %2x%2x\n", trans.rx_buf[2], trans.rx_buf[3]);
+        return false;
+    }
+    if(memcmp(&trans.rx_buf[4], &trans.tx_buf[4], sizeof(uint16_t)) != 0) {
+        AP_HAL::get_HAL().console->printf("Wrong number of regs, got %2x%2x\n", trans.rx_buf[4], trans.rx_buf[5]);
+        return false;
+    }
+    return true;
+}
+
 void AP_ORCAMotor_Modbus::handle_stream() {
 
     if(!_rb_empty()) {
         _rb_read(&trans);
         AP_HAL::get_HAL().console->printf("Transmitting queued message:\n");
         for(int i = 0; i < trans.tx_len; i++) {
-            AP_HAL::get_HAL().console->printf("%x ", trans.tx_buf[i]);
+            AP_HAL::get_HAL().console->printf("%02x ", trans.tx_buf[i]);
         }
         AP_HAL::get_HAL().console->printf("\n");
         //AP_HAL::get_HAL().console->printf("Read transaction\nLen: %u\n", trans.tx_len);
@@ -330,6 +383,9 @@ void AP_ORCAMotor_Modbus::process_response() {
         case MB_WRITE_SINGLE_REG:
             break;
         case MB_WRITE_MULTI_REG:
+            if(!check_multi_reg_write_response()) {
+                exit_state = ERROR;
+            }
             break;
         case MB_DIAG_QUERY_DATA:
             if(!check_ping_response()) {

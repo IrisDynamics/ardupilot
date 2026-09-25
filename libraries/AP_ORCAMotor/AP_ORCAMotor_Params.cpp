@@ -14,7 +14,7 @@ const AP_Param::GroupInfo AP_ORCAMotor_Params::var_info[] = {
     AP_GROUPINFO("SOFTSTART_MS", 9, AP_ORCAMotor_Params, softstart_duration, 3000),
     AP_GROUPINFO("INVERT_POS", 10, AP_ORCAMotor_Params, invert_position, 0),
     AP_GROUPINFO("AZERO_MODE", 11, AP_ORCAMotor_Params, autozero_mode, 0),
-    AP_GROUPINFO("AZERP_FORCE", 12, AP_ORCAMotor_Params, autozero_force, 30),
+    AP_GROUPINFO("AZERO_FORCE", 12, AP_ORCAMotor_Params, autozero_force, 30),
     AP_GROUPINFO("AZERO_SPEED", 13, AP_ORCAMotor_Params, autozero_speed, 50),
     AP_GROUPINFO("AZERO_EXIT", 13, AP_ORCAMotor_Params, autozero_exit_mode, 0),
     AP_GROUPEND

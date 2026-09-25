@@ -15,6 +15,7 @@
 // Specified TX lengths DO NOT include slave id, crc, or sub function codes
 #define EXT_MOTOR_FRAME_TX_LEN 7 
 #define EXT_MOTOR_FRAME_RX_LEN 42
+#define MULTI_REG_WRITE_RX_LEN 8
 #define PING_RESPONSE_RX_LEN 6
 #define TRANS_BUF_SIZE 3
 
@@ -69,6 +70,7 @@ public:
     bool healthy() override;
     void update() override;
     void clear_motor_errors() override;
+    void startup_config() override;
 
 private:
     enum TransactionState {
@@ -100,12 +102,14 @@ private:
         EXT_MODE_KINEMATIC = 0x05
     };
 
-    enum CtrlRegister {
+    enum RegisterMap {
         CTRL_REG_0 = 0,
         CTRL_REG_1 = 1,
         CTRL_REG_2 = 2,
         CTRL_REG_3 = 3,
-        CTRL_REG_4 = 4
+        CTRL_REG_4 = 4,
+        USER_MAX_FORCE = 140,
+        USER_MAX_FORCE_H = 141
     };
 
     enum CtrlReg0Fn {
@@ -144,11 +148,13 @@ private:
     void enqueue_extended_motor_frame(ExtMtrCmdMode mode, uint32_t data, uint16_t read_address);
     bool check_ping_response();
     bool check_ext_motor_frame_response();
+    bool check_multi_reg_write_response();
 
     void uart_poll();
     void write(const FunctionCode fn, const uint8_t* const data = nullptr, const size_t data_len = 0, const uint8_t* const sub_fn = nullptr, const size_t sub_fn_len = 0, bool queued = false);
     void writeQueue(const FunctionCode fn, const uint8_t* const data = nullptr, const size_t data_len = 0, const uint8_t* const sub_fn = nullptr, const size_t sub_fn_len = 0);
-    void writeSingleReg(const uint16_t reg, const uint16_t val);
+    void writeSingleReg(const uint16_t reg, const int16_t val);
+    void writeMultiReg(const uint16_t reg, const int16_t* const val, const size_t len);
     void transmit();
     void process_response();
     void handle_stream();
