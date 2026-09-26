@@ -126,7 +126,7 @@ void AP_ORCAMotor_Modbus::writeQueue(const FunctionCode fn, const uint8_t* const
     return write(fn, data, data_len, sub_fn, sub_fn_len, true);
 }
 
-void AP_ORCAMotor_Modbus::writeSingleReg(const RegisterMap reg, const int16_t val) {
+void AP_ORCAMotor_Modbus::writeSingleReg(const RegisterMap reg, const int16_t val, bool queued) {
     uint8_t _reg[2] = {
         (uint8_t)(reg >> 8),
         (uint8_t)(reg & 0xFF)
@@ -135,10 +135,10 @@ void AP_ORCAMotor_Modbus::writeSingleReg(const RegisterMap reg, const int16_t va
         (uint8_t)(val >> 8),
         (uint8_t)(val & 0xFF)
     };
-    return writeQueue(MB_WRITE_SINGLE_REG, _val, 2, _reg, 2);
+    return queued ? writeQueue(MB_WRITE_SINGLE_REG, _val, 2, _reg, 2) : write(MB_WRITE_SINGLE_REG, _val, 2, _reg, 2);
 }
 
-void AP_ORCAMotor_Modbus:: writeMultiReg(const RegisterMap reg, const int16_t* const val, const size_t len) {
+void AP_ORCAMotor_Modbus::writeMultiReg(const RegisterMap reg, const int16_t* const val, const size_t len) {
     //Convert 16 bit reg into array of {REG_HIGH, REG_LOW, NUM_REGS_HIGH, NUM_REGS_LOW, NUM_BYTES}
     const uint8_t header_len = 5;
     const uint8_t num_bytes = 2*len;
@@ -155,6 +155,17 @@ void AP_ORCAMotor_Modbus:: writeMultiReg(const RegisterMap reg, const int16_t* c
         _val[2*i+1] = (uint8_t)(val[i] & 0xFF);
     }
     return writeQueue(MB_WRITE_MULTI_REG, _val, num_bytes, _reg, header_len);
+}
+
+void AP_ORCAMotor_Modbus::readRegister(const RegisterMap reg, const size_t len) {
+    const uint8_t header_len = 4;
+    uint8_t header[header_len] = {
+        (uint8_t)(reg >> 8),
+        (uint8_t)(reg & 0xFF),
+        (uint8_t)(len >> 8),
+        (uint8_t)(len & 0xFF)
+    };
+    return write(MB_READ_SINGLE_REG, header, header_len); 
 }
 
 // Sub-functions are specified for some ORCA specific packets
@@ -277,6 +288,30 @@ bool AP_ORCAMotor_Modbus::check_ext_motor_frame_response()
     return true;
 }
 
+//TODO: Combine these two fns
+bool AP_ORCAMotor_Modbus::check_single_reg_write_response() {
+    if (trans.rx_len < SINGLE_REG_WRITE_RX_LEN) {
+        AP_HAL::get_HAL().console->printf("Wrong byte count, got %d\n", trans.rx_len);
+        return false;
+    }
+    if (trans.rx_buf[0] != ORCA_SLAVE_ID) {
+        AP_HAL::get_HAL().console->printf("Wrong slave ID count, got %d\n", trans.rx_buf[0]);
+        return false;
+    }
+    if (trans.rx_buf[1] != MB_WRITE_SINGLE_REG) {
+        AP_HAL::get_HAL().console->printf("Wrong function code, got %d\n", trans.rx_buf[1]);
+        return false;
+    }
+    if(memcmp(&trans.rx_buf[2], &trans.tx_buf[2], sizeof(uint16_t)) != 0) {
+        AP_HAL::get_HAL().console->printf("Wrong initial address, got %2x%2x\n", trans.rx_buf[2], trans.rx_buf[3]);
+        return false;
+    }
+    if(memcmp(&trans.rx_buf[4], &trans.tx_buf[4], sizeof(uint16_t)) != 0) {
+        AP_HAL::get_HAL().console->printf("Wrong reg value, got %2x%2x\n", trans.rx_buf[4], trans.rx_buf[5]);
+        return false;
+    }
+    return true;
+}
 // Device reponds with {slave_id, starting address, num_regs, crc}
 bool AP_ORCAMotor_Modbus::check_multi_reg_write_response() {
     if (trans.rx_len < MULTI_REG_WRITE_RX_LEN) {
@@ -333,6 +368,18 @@ void AP_ORCAMotor_Modbus::handle_stream() {
     case MODE_KINEMATIC:
     case MODE_PWM:
     case MODE_AUTOZERO:
+    if(!auto_zero_running) {
+        writeSingleReg(CTRL_REG_3, MODE_AUTOZERO, false);
+        auto_zero_running = true;
+    } else {
+        readRegister(MOTOR_STATUS, 1);
+        if(!trans.rx_len) break;
+        if((trans.rx_buf[4] & (uint8_t)AUTO_ZERO_COMPLETE) == (uint8_t)AUTO_ZERO_COMPLETE) {
+            target_mode = (MotorMode)_params.autozero_exit_mode.get();
+            auto_zero_running = false;
+        }
+    }
+        break;
     default:
         target_mode = MODE_SLEEP;
         trans.state = IDLE;
@@ -393,6 +440,9 @@ void AP_ORCAMotor_Modbus::process_response() {
         case MB_READ_SINGLE_REG:
             break;
         case MB_WRITE_SINGLE_REG:
+            if(!check_single_reg_write_response()) {
+                exit_state = ERROR;
+            }
             break;
         case MB_WRITE_MULTI_REG:
             if(!check_multi_reg_write_response()) {

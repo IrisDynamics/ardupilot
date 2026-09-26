@@ -16,6 +16,7 @@
 #define EXT_MOTOR_FRAME_TX_LEN 7 
 #define EXT_MOTOR_FRAME_RX_LEN 42
 #define MULTI_REG_WRITE_RX_LEN 8
+#define SINGLE_REG_WRITE_RX_LEN 8
 #define PING_RESPONSE_RX_LEN 6
 #define TRANS_QUEUE_SIZE 16
 
@@ -120,7 +121,8 @@ private:
         ZERO_MODE = 171,
         AUTO_ZERO_FORCE_N = 172,
         AUTO_ZERO_EXIT_MODE = 173,
-        AUTO_ZERO_SPEED_MMPS = 177
+        AUTO_ZERO_SPEED_MMPS = 177,
+        MOTOR_STATUS = 321
     };
 
     enum CtrlReg0Fn {
@@ -128,6 +130,12 @@ private:
         CR0_CLEAR_ERR = 2,
         CR0_ZERO_POS = 4,
         CR0_INVERT_POS = 8
+    };
+
+    enum MotorStatusBits {
+        AUTO_ZERO_COMPLETE = (1 << 0),
+        AUTO_ZERO_RUNNING = (1 << 2),
+        POSITION_MODE_MOVING = (1 << 3)
     };
 
     struct Transaction {
@@ -160,12 +168,14 @@ private:
     bool check_ping_response();
     bool check_ext_motor_frame_response();
     bool check_multi_reg_write_response();
+    bool check_single_reg_write_response();
 
     void uart_poll();
     void write(const FunctionCode fn, const uint8_t* const data = nullptr, const size_t data_len = 0, const uint8_t* const sub_fn = nullptr, const size_t sub_fn_len = 0, bool queued = false);
     void writeQueue(const FunctionCode fn, const uint8_t* const data = nullptr, const size_t data_len = 0, const uint8_t* const sub_fn = nullptr, const size_t sub_fn_len = 0);
-    void writeSingleReg(const RegisterMap reg, const int16_t val);
+    void writeSingleReg(const RegisterMap reg, const int16_t val, bool queued = true);
     void writeMultiReg(const RegisterMap reg, const int16_t* const val, const size_t len);
+    void readRegister(const RegisterMap reg, const size_t len);
     void transmit();
     void process_response();
     void handle_stream();
@@ -258,6 +268,7 @@ private:
     AP_HAL::UARTDriver *motor_uart;
     Transaction trans = {0};
     TransactionQueue _trans = {0};
+    bool auto_zero_running = false;
     bool _initialised = false;
     HAL_Semaphore _mutex;
 };
