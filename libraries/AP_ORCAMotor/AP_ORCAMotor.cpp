@@ -144,6 +144,20 @@ void AP_ORCAMotor::set_target_force_mN(uint8_t instance, int32_t target_force) {
     backend->set_target_force_mN(target_force);
 }
 
+void AP_ORCAMotor::run_auto_zero(uint8_t instance) {
+    auto* backend = get_instance(instance);
+    if(backend == nullptr) {
+        return;
+    }
+    backend->run_auto_zero();
+}
+
+void AP_ORCAMotor::run_auto_zero() {
+    for (int instance = 0; instance < AP_ORCAMOTOR_MAX_INSTANCES; instance++) {
+        run_auto_zero(instance);
+    }
+}
+
 AP_ORCAMotor_Backend* AP_ORCAMotor::get_instance(uint8_t instance) const {
     if(instance < AP_ORCAMOTOR_MAX_INSTANCES) {
         return _backends[instance];

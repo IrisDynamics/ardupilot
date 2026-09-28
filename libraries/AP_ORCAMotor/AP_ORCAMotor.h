@@ -84,6 +84,9 @@ public:
     void set_target_force_mN(uint8_t instance, int32_t target_force);
     void set_target_force_mN(int32_t target_force);
 
+    void run_auto_zero(uint8_t instance);
+    void run_auto_zero();
+
     static const struct AP_Param::GroupInfo var_info[];
 
     AP_ORCAMotor_Params _params[AP_ORCAMOTOR_MAX_INSTANCES];

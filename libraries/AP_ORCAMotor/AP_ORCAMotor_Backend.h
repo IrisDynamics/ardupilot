@@ -19,7 +19,18 @@ public:
     virtual void startup_config() = 0;
 
 protected:
+    enum AutoZeroMode {
+        ZERO_MODE_NEGATIVE_POS = 0,
+        ZERO_MODE_MANUAL = 1,
+        ZERO_MODE_AUTO_ENABLE = 2,
+        ZERO_MODE_ON_BOOT = 3,
+        ZERO_MODE_IOSH = 4
+    };
+
     inline void set_mode(MotorMode _target_mode) {
+        if (_target_mode == MODE_AUTOZERO) {
+            return; // Use run_auto_zero() for param setup check
+        }
         this->target_mode = _target_mode;
     }
     inline void set_target_position_um(int32_t _target_position){
@@ -29,6 +40,18 @@ protected:
     inline void set_target_force_mN(int32_t _target_force){
         this->target_force = _target_force;
         this->target_mode = MODE_FORCE;
+    }
+    inline void run_auto_zero() {
+        switch ((AutoZeroMode)_params.autozero_mode.get())
+        {
+        case ZERO_MODE_AUTO_ENABLE:
+        case ZERO_MODE_ON_BOOT:
+            this->target_mode = MODE_AUTOZERO;
+            break;
+        default:
+            // Won't run if autozero isn't set up
+            break;
+        }
     }
 
     int32_t target_position;
