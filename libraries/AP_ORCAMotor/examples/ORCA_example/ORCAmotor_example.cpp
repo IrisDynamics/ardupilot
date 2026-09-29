@@ -55,7 +55,8 @@ enum SerialCommand {
     NONE,
     MODE,
     POSITION,
-    FORCE
+    FORCE,
+    ZERO
 };
 
 void read_input() {
@@ -82,6 +83,8 @@ void read_input() {
         command = FORCE;
     } else if(strstr(serial_buf, "pos:")) {
         command = POSITION;
+    } else if(strstr(serial_buf, "zero")) {
+        command = ZERO;
     }
 
     char* tok = strtok(serial_buf, ":");
@@ -105,6 +108,9 @@ void read_input() {
     case POSITION:
         motor.set_target_position_um(value);
         hal.console->printf("Setting position target: %ld um\n", value);
+        break;
+    case ZERO:
+        motor.run_auto_zero();
         break;
     default:
         break;
