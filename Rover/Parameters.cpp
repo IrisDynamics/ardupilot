@@ -671,12 +671,6 @@ const AP_Param::GroupInfo ParametersG2::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("GUID_TIMEOUT", 62, ParametersG2, guided_timeout, 3.0),
 
-#if HAL_ORCAMOTOR_ENABLED
-    // @Group: ORCA
-    // @Path: ../libraries/AP_ORCAMotor/AP_ORCAMotor.cpp
-    AP_SUBGROUPINFO(orcamotor, "ORCA", 63, ParametersG2, AP_ORCAMotor),
-#endif
-
     AP_GROUPEND
 };
 
