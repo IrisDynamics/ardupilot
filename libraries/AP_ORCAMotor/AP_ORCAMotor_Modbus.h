@@ -235,6 +235,7 @@ private:
             AP_HAL::get_HAL().console->printf("Wrong function code, got %d\n", trans.rx_buf[1]);
             return true;
         }
+        return false;
     }
     inline void int32_to_arr_BE(int32_t v, int16_t b[2]) {
         b[0] = (int16_t)(v >> 16);
