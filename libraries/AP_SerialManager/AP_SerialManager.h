@@ -92,11 +92,6 @@
 #define AP_SERIALMANAGER_IMUOUT_BUFSIZE_RX     128
 #define AP_SERIALMANAGER_IMUOUT_BUFSIZE_TX     2048
 
-// ORCAMotor Modbus Protocol
-#define AP_SERIALMANAGER_ORCAMOTOR_BAUD   19200
-#define AP_SERIALMANAGER_ORCAMOTOR_BUFSIZE_RX   256
-#define AP_SERIALMANAGER_ORCAMOTOR_BUFSIZE_TX   128
-
 class AP_SerialManager {
 public:
     AP_SerialManager();
@@ -156,8 +151,7 @@ public:
         // Reserving Serial Protocol 47 for SerialProtocol_IQ
         SerialProtocol_PPP = 48,
         SerialProtocol_IBUS_Telem = 49,                // i-BUS telemetry data, ie via sensor port of FS-iA6B
-        SerialProtocol_IOMCU = 50,                     // IOMCU
-        SerialProtocol_ORCAMotor = 51, 
+        SerialProtocol_IOMCU = 50,                     // IOMCU 
         SerialProtocol_NumProtocols                    // must be the last value
     };
 
