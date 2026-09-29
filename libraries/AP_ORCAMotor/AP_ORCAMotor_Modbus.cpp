@@ -8,10 +8,6 @@
 extern const AP_HAL::HAL& hal;
 
 void AP_ORCAMotor_Modbus::init() {
-    //const AP_SerialManager &serial_manager = AP::serialmanager();
-
-    //motor_uart = serial_manager.find_serial(AP_SerialManager::SerialProtocol_ORCAMotor, _instance);
-
     if (_initialised) {
         return;
     }
@@ -28,7 +24,10 @@ void AP_ORCAMotor_Modbus::init() {
 }
 
 bool AP_ORCAMotor_Modbus::init_internals() {
-    motor_uart = AP_HAL::get_HAL().serial(4);
+    const AP_SerialManager &serial_manager = AP::serialmanager();
+    motor_uart = serial_manager.find_serial(AP_SerialManager::SerialProtocol_ORCAMotor, _instance);
+
+    //motor_uart = AP_HAL::get_HAL().serial(4);
 
     if(motor_uart != nullptr) {
         motor_uart->begin(AP_SERIALMANAGER_ORCAMOTOR_BAUD, ORCAMOTOR_RX_BYTES, ORCAMOTOR_TX_BYTES);
@@ -48,14 +47,14 @@ void AP_ORCAMotor_Modbus::clear_motor_errors() {
 void AP_ORCAMotor_Modbus::startup_config() {
     int16_t force[2];
     int32_to_arr_LE(_params.force_saturation.get(), force);
-    writeMultiReg(USER_MAX_FORCE, force, 2); //working
-    writeSingleReg(PC_PGAIN, _params.p_gain_pid.get()); //working
-    writeSingleReg(PC_IGAIN, _params.i_gain_pid.get()); //working
-    writeSingleReg(PC_DVGAIN, _params.d_gain_pid.get()); //working
-    writeSingleReg(POS_MAX_VEL, _params.speed_limit.get()); //working
-    writeSingleReg(POS_MAX_ACCEL, _params.accel_limit.get()); //working
-    writeSingleReg(POS_MAX_DECEL, _params.decel_limit.get()); //not working
-    writeSingleReg(PC_SOFTSTART_PERIOD, _params.softstart_duration.get()); //working
+    writeMultiReg(USER_MAX_FORCE, force, 2);
+    writeSingleReg(PC_PGAIN, _params.p_gain_pid.get());
+    writeSingleReg(PC_IGAIN, _params.i_gain_pid.get());
+    writeSingleReg(PC_DVGAIN, _params.d_gain_pid.get());
+    writeSingleReg(POS_MAX_VEL, _params.speed_limit.get());
+    writeSingleReg(POS_MAX_ACCEL, _params.accel_limit.get());
+    writeSingleReg(POS_MAX_DECEL, _params.decel_limit.get());
+    writeSingleReg(PC_SOFTSTART_PERIOD, _params.softstart_duration.get());
     //TODO: read CTRL-REG for INVERT POS status
     writeSingleReg(ZERO_MODE, _params.autozero_mode.get());
     writeSingleReg(AUTO_ZERO_FORCE_N, _params.autozero_force.get());
@@ -95,34 +94,15 @@ void AP_ORCAMotor_Modbus::thread_main() {
 }
 
 bool AP_ORCAMotor_Modbus::healthy() {
-    enqueue_ping_message();
-    return check_ping_response();
-}
-
-void AP_ORCAMotor_Modbus::update() {
-    switch (trans.state)
-    {
-    case IDLE:
-        handle_stream();
-        break;
-    case SENDING:
-        transmit();
-        break;
-    case RECEIVING:
-        uart_poll();
-        break;
-    case PROCESSING:
-        process_response();
-        break;
-    case ERROR:
-        AP_HAL::get_HAL().console->printf("Entered error state\n");
-        break;
-    default:
-        break;
+    if(!_initialised) {
+        return false;
     }
+    WITH_SEMAPHORE(_last_healthy_sem);
+    const uint32_t now_ms = AP_HAL::millis();
+    return ((now_ms - _last_received_ms < 3000) && (now_ms - _last_send_ms < 3000));
 }
 
-void AP_ORCAMotor_Modbus::writeQueue(const FunctionCode fn, const uint8_t* const data, const size_t data_len, const uint8_t* const sub_fn, const size_t sub_fn_len) {
+void AP_ORCAMotor_Modbus::writeQueued(const FunctionCode fn, const uint8_t* const data, const size_t data_len, const uint8_t* const sub_fn, const size_t sub_fn_len) {
     return write(fn, data, data_len, sub_fn, sub_fn_len, true);
 }
 
@@ -135,10 +115,10 @@ void AP_ORCAMotor_Modbus::writeSingleReg(const RegisterMap reg, const int16_t va
         (uint8_t)(val >> 8),
         (uint8_t)(val & 0xFF)
     };
-    return queued ? writeQueue(MB_WRITE_SINGLE_REG, _val, 2, _reg, 2) : write(MB_WRITE_SINGLE_REG, _val, 2, _reg, 2);
+    return queued ? writeQueued(MB_WRITE_SINGLE_REG, _val, 2, _reg, 2) : write(MB_WRITE_SINGLE_REG, _val, 2, _reg, 2);
 }
 
-void AP_ORCAMotor_Modbus::writeMultiReg(const RegisterMap reg, const int16_t* const val, const size_t len) {
+void AP_ORCAMotor_Modbus::writeMultiReg(const RegisterMap reg, const int16_t* const val, const size_t len, bool queued) {
     //Convert 16 bit reg into array of {REG_HIGH, REG_LOW, NUM_REGS_HIGH, NUM_REGS_LOW, NUM_BYTES}
     const uint8_t header_len = 5;
     const uint8_t num_bytes = 2*len;
@@ -154,7 +134,7 @@ void AP_ORCAMotor_Modbus::writeMultiReg(const RegisterMap reg, const int16_t* co
         _val[2*i] = (uint8_t)((val[i] >> 8) & 0xFF);
         _val[2*i+1] = (uint8_t)(val[i] & 0xFF);
     }
-    return writeQueue(MB_WRITE_MULTI_REG, _val, num_bytes, _reg, header_len);
+    return queued ? writeQueued(MB_WRITE_MULTI_REG, _val, num_bytes, _reg, header_len) : write(MB_WRITE_MULTI_REG, _val, num_bytes, _reg, header_len);
 }
 
 void AP_ORCAMotor_Modbus::readRegister(const RegisterMap reg, const size_t len) {
@@ -219,12 +199,12 @@ void AP_ORCAMotor_Modbus::write(const FunctionCode fn, const uint8_t* const data
     //AP_HAL::get_HAL().console->printf("Loaded transmit buffer\n");
 }
 
-void AP_ORCAMotor_Modbus::enqueue_ping_message(){
+void AP_ORCAMotor_Modbus::send_ping_message() {
     uint8_t diag_fn[2] = {0, 0};
     write(MB_DIAG_QUERY_DATA, nullptr, 0, diag_fn, sizeof(diag_fn));
 }
 
-void AP_ORCAMotor_Modbus::enqueue_extended_motor_frame(ExtMtrCmdMode mode, uint32_t data, uint16_t read_address){
+void AP_ORCAMotor_Modbus::send_extended_motor_frame(ExtMtrCmdMode mode, uint32_t data, uint16_t read_address) {
     uint8_t tx[EXT_MOTOR_FRAME_TX_LEN] = {
         mode, 
         (uint8_t)(data>>24),
@@ -237,9 +217,34 @@ void AP_ORCAMotor_Modbus::enqueue_extended_motor_frame(ExtMtrCmdMode mode, uint3
     return write(ORCA_EXT_MTR_STREAM, tx, sizeof(tx));
 }
 
-bool AP_ORCAMotor_Modbus::check_ping_response(){
+void AP_ORCAMotor_Modbus::handle_auto_zero() {
+    if(!auto_zero_running) {
+        writeSingleReg(CTRL_REG_3, MODE_AUTOZERO, false);
+        auto_zero_running = true;
+        auto_zero_start_ms = AP_HAL::millis();
+        return;
+    }
+    
+    readRegister(MOTOR_STATUS, 1);
+    if ((AP_HAL::millis() - auto_zero_start_ms) > AUTO_ZERO_TIMEOUT_MS) {
+        AP_HAL::get_HAL().console->printf("Auto-Zero timed out\n");
+        //TODO: GCS err msg
+        target_mode = MODE_SLEEP;
+        auto_zero_running = false;
+        return;
+    }
+    if(!trans.rx_len) {
+        return;
+    }
+    if((trans.rx_buf[4] & (uint8_t)AUTO_ZERO_COMPLETE) == (uint8_t)AUTO_ZERO_COMPLETE) {
+        target_mode = (MotorMode)_params.autozero_exit_mode.get();
+        auto_zero_running = false;
+    } 
+}
+
+bool AP_ORCAMotor_Modbus::check_ping_response() {
     if (trans.rx_len < PING_RESPONSE_RX_LEN) {
-         AP_HAL::get_HAL().console->printf("Not enough bytes: %d\n", trans.rx_len);
+        AP_HAL::get_HAL().console->printf("Not enough bytes: %d\n", trans.rx_len);
         return false;
     }
     const uint8_t expected_response[6] = {0x01, 0x08, 0x00, 0x00, 0x80, 0x1A };                    
@@ -253,19 +258,8 @@ bool AP_ORCAMotor_Modbus::check_ping_response(){
     return true;
 }
 
-bool AP_ORCAMotor_Modbus::check_ext_motor_frame_response()
-{
-    if (trans.rx_len < EXT_MOTOR_FRAME_RX_LEN){
-        AP_HAL::get_HAL().console->printf("Wrong byte count, got %d\n", trans.rx_len);
-        return false;
-    }
-
-    if (trans.rx_buf[0] != ORCA_SLAVE_ID){
-        AP_HAL::get_HAL().console->printf("Wrong slave ID count, got %d\n", trans.rx_buf[0]);
-        return false;
-    }
-    if (trans.rx_buf[1] != ORCA_EXT_MTR_STREAM){
-        AP_HAL::get_HAL().console->printf("Wrong function code, got %d\n", trans.rx_buf[1]);
+bool AP_ORCAMotor_Modbus::check_ext_motor_frame_response() {
+    if (bad_response_header(ORCA_EXT_MTR_STREAM, EXT_MOTOR_FRAME_RX_LEN)) {
         return false;
     }
    
@@ -290,16 +284,7 @@ bool AP_ORCAMotor_Modbus::check_ext_motor_frame_response()
 
 //TODO: Combine these two fns
 bool AP_ORCAMotor_Modbus::check_single_reg_write_response() {
-    if (trans.rx_len < SINGLE_REG_WRITE_RX_LEN) {
-        AP_HAL::get_HAL().console->printf("Wrong byte count, got %d\n", trans.rx_len);
-        return false;
-    }
-    if (trans.rx_buf[0] != ORCA_SLAVE_ID) {
-        AP_HAL::get_HAL().console->printf("Wrong slave ID count, got %d\n", trans.rx_buf[0]);
-        return false;
-    }
-    if (trans.rx_buf[1] != MB_WRITE_SINGLE_REG) {
-        AP_HAL::get_HAL().console->printf("Wrong function code, got %d\n", trans.rx_buf[1]);
+    if (bad_response_header(MB_WRITE_SINGLE_REG, SINGLE_REG_WRITE_RX_LEN)) {
         return false;
     }
     if(memcmp(&trans.rx_buf[2], &trans.tx_buf[2], sizeof(uint16_t)) != 0) {
@@ -314,16 +299,7 @@ bool AP_ORCAMotor_Modbus::check_single_reg_write_response() {
 }
 // Device reponds with {slave_id, starting address, num_regs, crc}
 bool AP_ORCAMotor_Modbus::check_multi_reg_write_response() {
-    if (trans.rx_len < MULTI_REG_WRITE_RX_LEN) {
-        AP_HAL::get_HAL().console->printf("Wrong byte count, got %d\n", trans.rx_len);
-        return false;
-    }
-    if (trans.rx_buf[0] != ORCA_SLAVE_ID) {
-        AP_HAL::get_HAL().console->printf("Wrong slave ID count, got %d\n", trans.rx_buf[0]);
-        return false;
-    }
-    if (trans.rx_buf[1] != MB_WRITE_MULTI_REG) {
-        AP_HAL::get_HAL().console->printf("Wrong function code, got %d\n", trans.rx_buf[1]);
+    if (bad_response_header(MB_WRITE_MULTI_REG, MULTI_REG_WRITE_RX_LEN)) {
         return false;
     }
     if(memcmp(&trans.rx_buf[2], &trans.tx_buf[2], sizeof(uint16_t)) != 0) {
@@ -338,7 +314,7 @@ bool AP_ORCAMotor_Modbus::check_multi_reg_write_response() {
 }
 
 void AP_ORCAMotor_Modbus::handle_stream() {
-
+    // Check if we have queued commands from outside the UART thread
     if(!_rb_empty()) {
         _rb_read(&trans);
         AP_HAL::get_HAL().console->printf("Transmitting queued message:\n");
@@ -350,40 +326,29 @@ void AP_ORCAMotor_Modbus::handle_stream() {
         trans.state = SENDING;
         return;
     }
-    
-    switch (target_mode)
-    {
-    case MODE_SLEEP:
-        //AP_HAL::get_HAL().console->printf("Stream target: SLEEP\n");
-        enqueue_extended_motor_frame(EXT_MODE_SLEEP, 0, 0);
-        break;
-    case MODE_FORCE:
-        enqueue_extended_motor_frame(EXT_MODE_FORCE, target_force, 0);
-        break;
-    case MODE_POSITION:
-        //AP_HAL::get_HAL().console->printf("Stream target: POSITION\n");
-        enqueue_extended_motor_frame(EXT_MODE_POSITION, target_position, 0);
-        break;
-    case MODE_HAPTIC:
-    case MODE_KINEMATIC:
-    case MODE_PWM:
-    case MODE_AUTOZERO:
-    if(!auto_zero_running) {
-        writeSingleReg(CTRL_REG_3, MODE_AUTOZERO, false);
-        auto_zero_running = true;
-    } else {
-        readRegister(MOTOR_STATUS, 1);
-        if(!trans.rx_len) break;
-        if((trans.rx_buf[4] & (uint8_t)AUTO_ZERO_COMPLETE) == (uint8_t)AUTO_ZERO_COMPLETE) {
-            target_mode = (MotorMode)_params.autozero_exit_mode.get();
-            auto_zero_running = false;
-        }
-    }
-        break;
-    default:
-        target_mode = MODE_SLEEP;
-        trans.state = IDLE;
-        return;;
+    // Otherwise manage the motor based on target mode, force, position etc.
+    switch (target_mode) {
+        case MODE_SLEEP:
+            //AP_HAL::get_HAL().console->printf("Stream target: SLEEP\n");
+            send_extended_motor_frame(EXT_MODE_SLEEP, 0, 0);
+            break;
+        case MODE_FORCE:
+            send_extended_motor_frame(EXT_MODE_FORCE, target_force, 0);
+            break;
+        case MODE_POSITION:
+            //AP_HAL::get_HAL().console->printf("Stream target: POSITION\n");
+            send_extended_motor_frame(EXT_MODE_POSITION, target_position, 0);
+            break;
+        case MODE_AUTOZERO:
+            handle_auto_zero();
+            break;
+        case MODE_HAPTIC:
+        case MODE_KINEMATIC:
+        case MODE_PWM:
+        default:
+            target_mode = MODE_SLEEP;
+            trans.state = IDLE;
+            return;
     }
 
     trans.state = SENDING;
@@ -400,6 +365,8 @@ void AP_ORCAMotor_Modbus::transmit() {
     motor_uart->flush();
     trans.state = RECEIVING;
     trans.rx_entry_ms = AP_HAL::millis();
+    WITH_SEMAPHORE(_last_healthy_sem);
+    _last_send_ms = AP_HAL::millis();
 }
 
 void AP_ORCAMotor_Modbus::uart_poll() {
@@ -419,6 +386,8 @@ void AP_ORCAMotor_Modbus::uart_poll() {
     // Got response
     if(trans.rx_len > 0) {
         trans.state = PROCESSING;
+        WITH_SEMAPHORE(_last_healthy_sem);
+        _last_received_ms = AP_HAL::millis();
         // AP_HAL::get_HAL().console->printf("Got %u bytes in response:\n", trans.rx_len);
         // for(int i = 0; i < trans.rx_len; i++) {
         //     AP_HAL::get_HAL().console->printf("%x ", trans.rx_buf[i]);
@@ -473,5 +442,4 @@ void AP_ORCAMotor_Modbus::process_response() {
     }
     trans.state = exit_state;
 }
-
 #endif

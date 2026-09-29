@@ -14,7 +14,6 @@ public:
 
     virtual void init() = 0;
     virtual bool healthy() = 0;
-    virtual void update() = 0;
     virtual void clear_motor_errors() = 0;
     virtual void startup_config() = 0;
 

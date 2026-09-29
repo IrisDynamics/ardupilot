@@ -67,7 +67,6 @@ public:
     static AP_ORCAMotor *get_singleton();
 
     void init();
-    void update();
 
     bool enabled();
     bool enabled(uint8_t instance);
