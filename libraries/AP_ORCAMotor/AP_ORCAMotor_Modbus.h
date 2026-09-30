@@ -13,7 +13,7 @@
 #define ORCA_SLAVE_ID 0x01
 
 // Specified TX lengths DO NOT include slave id, crc, or sub function codes
-#define EXT_MOTOR_FRAME_TX_LEN 7 
+#define EXT_MOTOR_FRAME_TX_LEN 7
 #define EXT_MOTOR_FRAME_RX_LEN 42
 #define MULTI_REG_WRITE_RX_LEN 8
 #define SINGLE_REG_WRITE_RX_LEN 8
@@ -66,7 +66,8 @@ static constexpr uint8_t crc_lo_table[256] = {
     0x40
 };
 
-class AP_ORCAMotor_Modbus : public AP_ORCAMotor_Backend {
+class AP_ORCAMotor_Modbus : public AP_ORCAMotor_Backend
+{
 public:
     using AP_ORCAMotor_Backend::AP_ORCAMotor_Backend;
 
@@ -191,78 +192,87 @@ private:
 
     // Helper functions for processing;
     inline int parseint32(uint8_t* data, int start_index, int32_t* value)
-	{
-		*value = (data[start_index]    << 24)
-			  | (data[start_index + 1] << 16)
-			  | (data[start_index + 2] << 8)
-			  |  data[start_index + 3];
-		return start_index + 4;
-	}
-	inline int parseint16(uint8_t* data, int start_index, int16_t* value)
-	{
-		*value = (data[start_index]     << 8)
-			   | data[start_index + 1];
-		return start_index + 2;
-	}
-    inline uint16_t generate_crc(const uint8_t *tx_message, size_t tx_message_len) {
+    {
+        *value = (data[start_index]    << 24)
+                 | (data[start_index + 1] << 16)
+                 | (data[start_index + 2] << 8)
+                 |  data[start_index + 3];
+        return start_index + 4;
+    }
+    inline int parseint16(uint8_t* data, int start_index, int16_t* value)
+    {
+        *value = (data[start_index]     << 8)
+                 | data[start_index + 1];
+        return start_index + 2;
+    }
+    inline uint16_t generate_crc(const uint8_t *tx_message, size_t tx_message_len)
+    {
         uint8_t crc_hi_byte = 0xFF;	// initialize crc bytes
         uint8_t crc_lo_byte = 0xFF; //
         int index = 0; // for indexing the crc tables
 
-        while(tx_message_len--) {
+        while (tx_message_len--) {
             index = crc_hi_byte ^ *tx_message++;
             crc_hi_byte = crc_lo_byte ^ crc_hi_table[index];
             crc_lo_byte = crc_lo_table[index];
         }
         return (crc_hi_byte << 8 | crc_lo_byte);	// return crc result, with bytes swapped for modbus message
     }
-    inline bool bad_crc(uint8_t* rx_data, uint16_t rx_frame_len){
+    inline bool bad_crc(uint8_t* rx_data, uint16_t rx_frame_len)
+    {
         uint16_t crc = generate_crc(rx_data, rx_frame_len-2);
-        if ((rx_data[rx_frame_len-2] != (crc & 0xFF)) | (rx_data[rx_frame_len-1] != (crc >> 8))){
+        if ((rx_data[rx_frame_len-2] != (crc & 0xFF)) | (rx_data[rx_frame_len-1] != (crc >> 8))) {
             return true;
         }
         return false;
     }
-    inline bool bad_response_header(FunctionCode fn, uint8_t expected_len) {
+    inline bool bad_response_header(FunctionCode fn, uint8_t expected_len)
+    {
         if (trans.rx_len < expected_len) {
             AP_HAL::get_HAL().console->printf("Not enough bytes: %d\n", trans.rx_len);
             return true;
         }
-        if (trans.rx_buf[0] != ORCA_SLAVE_ID){
+        if (trans.rx_buf[0] != ORCA_SLAVE_ID) {
             AP_HAL::get_HAL().console->printf("Wrong slave ID count, got %d\n", trans.rx_buf[0]);
             return true;
         }
-        if (trans.rx_buf[1] != fn){
+        if (trans.rx_buf[1] != fn) {
             AP_HAL::get_HAL().console->printf("Wrong function code, got %d\n", trans.rx_buf[1]);
             return true;
         }
         return false;
     }
-    inline void int32_to_arr_BE(int32_t v, int16_t b[2]) {
+    inline void int32_to_arr_BE(int32_t v, int16_t b[2])
+    {
         b[0] = (int16_t)(v >> 16);
         b[1] = (int16_t)(v & 0xFFFF);
     }
-    inline void int32_to_arr_LE(int32_t v, int16_t b[2]) {
+    inline void int32_to_arr_LE(int32_t v, int16_t b[2])
+    {
         b[0] = (int16_t)(v & 0xFFFF);
         b[1] = (int16_t)(v >> 16);
     }
 
     // Control functions for using transaction ring buffer
-    inline void _rb_init() {
+    inline void _rb_init()
+    {
         _trans.head = 0;
         _trans.tail = 0;
     }
-    inline bool _rb_empty() {
+    inline bool _rb_empty()
+    {
         return _trans.head == _trans.tail;
     }
-    inline bool _rb_full() {
+    inline bool _rb_full()
+    {
         return (_trans.head + 1) % TRANS_QUEUE_SIZE == _trans.tail;
     }
-    inline bool _rb_write(Transmission* t) {
+    inline bool _rb_write(Transmission* t)
+    {
         if (!_queue_mutex.take_nonblocking()) {
             return false;
         }
-        if(_rb_full()) {
+        if (_rb_full()) {
             _queue_mutex.give();
             return false;
         }
@@ -271,9 +281,10 @@ private:
         _queue_mutex.give();
         return true;
     }
-    inline bool _rb_read(Transaction* t) {
+    inline bool _rb_read(Transaction* t)
+    {
         _queue_mutex.take_blocking();
-        if(_rb_empty()) {
+        if (_rb_empty()) {
             _queue_mutex.give();
             return false;
         }
@@ -284,7 +295,7 @@ private:
         _queue_mutex.give();
         return true;
     }
-    
+
     AP_HAL::UARTDriver *motor_uart;
     Transaction trans = {0};
     TransactionQueue _trans = {0};

@@ -5,7 +5,8 @@
 #if HAL_ORCAMOTOR_ENABLED
 #include "AP_ORCAMotor.h"
 
-class AP_ORCAMotor_Backend {
+class AP_ORCAMotor_Backend
+{
     friend class AP_ORCAMotor;
 public:
     AP_ORCAMotor_Backend(AP_ORCAMotor_Params &params, uint8_t instance, ExtMotorData &state);
@@ -26,24 +27,27 @@ protected:
         ZERO_MODE_IOSH = 4
     };
 
-    inline void set_mode(MotorMode _target_mode) {
+    inline void set_mode(MotorMode _target_mode)
+    {
         if (_target_mode == MODE_AUTOZERO) {
             AP_HAL::get_HAL().console->printf("Use run_auto_zero()\n");
             return; // Use run_auto_zero() for param setup check
         }
         this->target_mode = _target_mode;
     }
-    inline void set_target_position_um(int32_t _target_position){
+    inline void set_target_position_um(int32_t _target_position)
+    {
         this->target_position = _target_position;
         this->target_mode = MODE_POSITION;
     }
-    inline void set_target_force_mN(int32_t _target_force){
+    inline void set_target_force_mN(int32_t _target_force)
+    {
         this->target_force = _target_force;
         this->target_mode = MODE_FORCE;
     }
-    inline void run_auto_zero() {
-        switch ((AutoZeroMode)_params.autozero_mode.get())
-        {
+    inline void run_auto_zero()
+    {
+        switch ((AutoZeroMode)_params.autozero_mode.get()) {
         case ZERO_MODE_AUTO_ENABLE:
         case ZERO_MODE_ON_BOOT:
             this->target_mode = MODE_AUTOZERO;

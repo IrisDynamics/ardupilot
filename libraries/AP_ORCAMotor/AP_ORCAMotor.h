@@ -55,7 +55,8 @@ struct ExtMotorData {
 class AP_ORCAMotor_Backend;
 class AP_ORCAMotor_Modbus;
 
-class AP_ORCAMotor{
+class AP_ORCAMotor
+{
 
     friend class AP_ORCAMotor_Backend;
     friend class AP_ORCAMotor_Modbus;
@@ -98,8 +99,9 @@ private:
     AP_ORCAMotor_Backend *_backends[AP_ORCAMOTOR_MAX_INSTANCES];
 };
 
-namespace AP {
-    AP_ORCAMotor *orcamotor();
+namespace AP
+{
+AP_ORCAMotor *orcamotor();
 };
 
 #endif

@@ -8,7 +8,7 @@
 extern const AP_HAL::HAL& hal;
 
 // constructor
-AP_ORCAMotor_Backend::AP_ORCAMotor_Backend(AP_ORCAMotor_Params &params, uint8_t instance, ExtMotorData& state) : 
+AP_ORCAMotor_Backend::AP_ORCAMotor_Backend(AP_ORCAMotor_Params &params, uint8_t instance, ExtMotorData& state) :
     _params(params),
     _instance(instance),
     _state(state)

@@ -3,7 +3,8 @@
 #include <AP_Param/AP_Param.h>
 #include <AP_Math/AP_Math.h>
 
-class AP_ORCAMotor_Params {
+class AP_ORCAMotor_Params
+{
 public:
     static const struct AP_Param::GroupInfo var_info[];
 

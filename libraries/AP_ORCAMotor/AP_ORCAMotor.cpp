@@ -23,12 +23,14 @@ const AP_Param::GroupInfo AP_ORCAMotor::var_info[] = {
     AP_GROUPEND
 };
 
-AP_ORCAMotor::AP_ORCAMotor(){
+AP_ORCAMotor::AP_ORCAMotor()
+{
     _singleton = this;
     AP_Param::setup_object_defaults(this, var_info);
 }
 
-void AP_ORCAMotor::init(){
+void AP_ORCAMotor::init()
+{
     _backends[0] = NEW_NOTHROW AP_ORCAMotor_Modbus(_params[0], 0, _state[0]);
     _backends[0]->init();
     // TODO: Implement intialization via params
@@ -51,23 +53,26 @@ void AP_ORCAMotor::init(){
     // }
 }
 
-bool AP_ORCAMotor::enabled() {
+bool AP_ORCAMotor::enabled()
+{
     for (int instance = 0; instance < AP_ORCAMOTOR_MAX_INSTANCES; instance++) {
-        if(enabled(instance)) {
+        if (enabled(instance)) {
             return true;
         }
     }
     return false;
 }
 
-bool AP_ORCAMotor::enabled(uint8_t instance) {
+bool AP_ORCAMotor::enabled(uint8_t instance)
+{
     if (instance < AP_ORCAMOTOR_MAX_INSTANCES) {
         return _params[instance].type.get() != 0;
     }
     return false;
 }
 
-bool AP_ORCAMotor::healthy() {
+bool AP_ORCAMotor::healthy()
+{
     uint8_t num_backends = 0;
     uint8_t num_healthy = 0;
     for (uint8_t instance = 0; instance < AP_ORCAMOTOR_MAX_INSTANCES; instance++) {
@@ -83,73 +88,83 @@ bool AP_ORCAMotor::healthy() {
     return ((num_backends > 0) && (num_healthy == num_backends));
 }
 
-bool AP_ORCAMotor::healthy(uint8_t instance) {
+bool AP_ORCAMotor::healthy(uint8_t instance)
+{
     auto* backend = get_instance(instance);
-    if(backend == nullptr) {
+    if (backend == nullptr) {
         return false;
     }
     return backend->healthy();
 }
 
-void AP_ORCAMotor::set_mode(MotorMode mode) {
+void AP_ORCAMotor::set_mode(MotorMode mode)
+{
     for (int instance = 0; instance < AP_ORCAMOTOR_MAX_INSTANCES; instance++) {
         set_mode(instance, mode);
     }
 }
 
-void AP_ORCAMotor::set_mode(uint8_t instance, MotorMode mode) {
+void AP_ORCAMotor::set_mode(uint8_t instance, MotorMode mode)
+{
     auto* backend = get_instance(instance);
-    if(backend == nullptr) {
+    if (backend == nullptr) {
         return;
     }
     backend->set_mode(mode);
 }
 
-void AP_ORCAMotor::set_target_position_um(int32_t target_position) {
-    for(int instance = 0; instance < AP_ORCAMOTOR_MAX_INSTANCES; instance++) {
+void AP_ORCAMotor::set_target_position_um(int32_t target_position)
+{
+    for (int instance = 0; instance < AP_ORCAMOTOR_MAX_INSTANCES; instance++) {
         set_target_position_um(instance, target_position);
     }
-}  
+}
 
-void AP_ORCAMotor::set_target_position_um(uint8_t instance, int32_t target_position) {
+void AP_ORCAMotor::set_target_position_um(uint8_t instance, int32_t target_position)
+{
     auto* backend = get_instance(instance);
-    if(backend == nullptr) {
+    if (backend == nullptr) {
         return;
     }
     backend->set_target_position_um(target_position);
 }
 
-void AP_ORCAMotor::set_target_force_mN(int32_t target_force) {
+void AP_ORCAMotor::set_target_force_mN(int32_t target_force)
+{
     for (int instance = 0; instance < AP_ORCAMOTOR_MAX_INSTANCES; instance++) {
         set_target_force_mN(instance, target_force);
     }
-    
+
 }
 
-void AP_ORCAMotor::set_target_force_mN(uint8_t instance, int32_t target_force) {
+void AP_ORCAMotor::set_target_force_mN(uint8_t instance, int32_t target_force)
+{
     auto* backend = get_instance(instance);
-    if(backend == nullptr) {
+    if (backend == nullptr) {
         return;
     }
     backend->set_target_force_mN(target_force);
 }
 
-void AP_ORCAMotor::run_auto_zero(uint8_t instance) {
+void AP_ORCAMotor::run_auto_zero(uint8_t instance)
+{
     auto* backend = get_instance(instance);
-    if(backend == nullptr) {
+    if (backend == nullptr) {
         return;
     }
     backend->run_auto_zero();
 }
 
-void AP_ORCAMotor::run_auto_zero() {
+void AP_ORCAMotor::run_auto_zero()
+{
     for (int instance = 0; instance < AP_ORCAMOTOR_MAX_INSTANCES; instance++) {
         run_auto_zero(instance);
     }
 }
 
-AP_ORCAMotor_Backend* AP_ORCAMotor::get_instance(uint8_t instance) const {
-    if(instance < AP_ORCAMOTOR_MAX_INSTANCES) {
+AP_ORCAMotor_Backend* AP_ORCAMotor::get_instance(uint8_t instance) const
+{
+    if (instance < AP_ORCAMOTOR_MAX_INSTANCES) {
         return _backends[instance];
     }
     return nullptr;
@@ -157,13 +172,16 @@ AP_ORCAMotor_Backend* AP_ORCAMotor::get_instance(uint8_t instance) const {
 
 AP_ORCAMotor *AP_ORCAMotor::_singleton = nullptr;
 
-AP_ORCAMotor* AP_ORCAMotor::get_singleton() {
+AP_ORCAMotor* AP_ORCAMotor::get_singleton()
+{
     return _singleton;
 }
 
-namespace AP {
-    AP_ORCAMotor* orcamotor() {
-        return AP_ORCAMotor::get_singleton();
-    }
+namespace AP
+{
+AP_ORCAMotor* orcamotor()
+{
+    return AP_ORCAMotor::get_singleton();
+}
 }
 #endif
