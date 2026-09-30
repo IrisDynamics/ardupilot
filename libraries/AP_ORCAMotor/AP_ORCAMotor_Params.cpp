@@ -1,7 +1,6 @@
 #include "AP_ORCAMotor_Params.h"
 #include <SRV_Channel/SRV_Channel.h>
 
-// table of user settable parameters
 const AP_Param::GroupInfo AP_ORCAMotor_Params::var_info[] = {
     AP_GROUPINFO_FLAGS("TYPE", 1, AP_ORCAMotor_Params, type, 0, AP_PARAM_FLAG_ENABLE),
     AP_GROUPINFO("FORCE_SAT", 2, AP_ORCAMotor_Params, force_saturation, 300000),

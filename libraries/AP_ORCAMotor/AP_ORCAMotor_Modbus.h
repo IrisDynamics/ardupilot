@@ -5,7 +5,7 @@
 #if HAL_ORCAMOTOR_ENABLED
 #include "AP_ORCAMotor_Backend.h"
 
-#define ORCAMOTOR_BAUD
+#define ORCAMOTOR_BAUD 19200
 #define ORCAMOTOR_RX_BYTES 256
 #define ORCAMOTOR_TX_BYTES 32
 #define ORCAMOTOR_RX_TIMEOUT_MS 1000
@@ -22,6 +22,7 @@
 
 #define AUTO_ZERO_TIMEOUT_MS 3000 // This should be increased for high shaft lengths
 
+/* Table of CRC values for high–order byte */
 static constexpr uint8_t crc_hi_table[256] = {
     0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81,
     0x40, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81, 0x40, 0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0,

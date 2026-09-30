@@ -95,7 +95,7 @@ private:
     AP_ORCAMotor_Backend *get_instance(uint8_t instance) const;
 
     static AP_ORCAMotor *_singleton;
-    AP_ORCAMotor_Backend *_backends[AP_ORCAMOTOR_MAX_INSTANCES];  // pointers to instantiated backends
+    AP_ORCAMotor_Backend *_backends[AP_ORCAMOTOR_MAX_INSTANCES];
 };
 
 namespace AP {

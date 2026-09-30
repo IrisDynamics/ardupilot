@@ -24,13 +24,13 @@ void AP_ORCAMotor_Modbus::init() {
 }
 
 bool AP_ORCAMotor_Modbus::init_internals() {
-    const AP_SerialManager &serial_manager = AP::serialmanager();
-    motor_uart = serial_manager.find_serial(AP_SerialManager::SerialProtocol_ORCAMotor, _instance);
+    // const AP_SerialManager &serial_manager = AP::serialmanager();
+    // motor_uart = serial_manager.find_serial(AP_SerialManager::SerialProtocol_ORCAMotor, _instance);
 
-    //motor_uart = AP_HAL::get_HAL().serial(4);
+    motor_uart = AP_HAL::get_HAL().serial(4);
 
     if(motor_uart != nullptr) {
-        motor_uart->begin(AP_SERIALMANAGER_ORCAMOTOR_BAUD, ORCAMOTOR_RX_BYTES, ORCAMOTOR_TX_BYTES);
+        motor_uart->begin(ORCAMOTOR_BAUD, ORCAMOTOR_RX_BYTES, ORCAMOTOR_TX_BYTES);
         motor_uart->set_flow_control(AP_HAL::UARTDriver::FLOW_CONTROL_DISABLE);
         motor_uart->set_stop_bits(1);
         motor_uart->configure_parity(UART_PARITY_EVEN);

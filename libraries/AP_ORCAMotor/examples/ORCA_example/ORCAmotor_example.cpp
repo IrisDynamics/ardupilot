@@ -45,7 +45,6 @@ AP_RTC rtc;
 AP_Logger logger;
 #endif
 
-static AP_SerialManager serial_manager;
 static AP_ORCAMotor motor;
 
 static uint32_t last_log = 0;
@@ -136,11 +135,8 @@ void setup(void)
     board_led.init();
 #endif
 
-    hal.console->printf("Serial manager init\n");
-    serial_manager.init();
     hal.console->printf("Motor init\n");
     motor.init();
-    //motor.set_target_position_um(20000);
 }
 
 void loop(void)
