@@ -193,6 +193,9 @@ private:
     // Helper functions for processing;
     inline int parseint32(uint8_t* data, int start_index, int32_t* value)
     {
+        if(data == nullptr || value == nullptr){
+            return start_index;
+        }
         *value = (data[start_index]    << 24)
                  | (data[start_index + 1] << 16)
                  | (data[start_index + 2] << 8)
@@ -201,12 +204,18 @@ private:
     }
     inline int parseint16(uint8_t* data, int start_index, int16_t* value)
     {
+        if(data == nullptr || value == nullptr){
+            return start_index;
+        }
         *value = (data[start_index]     << 8)
                  | data[start_index + 1];
         return start_index + 2;
     }
     inline uint16_t generate_crc(const uint8_t *tx_message, size_t tx_message_len)
     {
+        if(tx_message == nullptr){
+            return 0;
+        }
         uint8_t crc_hi_byte = 0xFF;	// initialize crc bytes
         uint8_t crc_lo_byte = 0xFF; //
         int index = 0; // for indexing the crc tables
@@ -220,6 +229,9 @@ private:
     }
     inline bool bad_crc(uint8_t* rx_data, uint16_t rx_frame_len)
     {
+        if(rx_data == nullptr){
+            return true;
+        }
         uint16_t crc = generate_crc(rx_data, rx_frame_len-2);
         if ((rx_data[rx_frame_len-2] != (crc & 0xFF)) | (rx_data[rx_frame_len-1] != (crc >> 8))) {
             return true;
@@ -229,26 +241,32 @@ private:
     inline bool bad_response_header(FunctionCode fn, uint8_t expected_len)
     {
         if (trans.rx_len < expected_len) {
-            AP_HAL::get_HAL().console->printf("Not enough bytes: %d\n", trans.rx_len);
+            //AP_HAL::get_HAL().console->printf("Not enough bytes: %d\n", trans.rx_len);
             return true;
         }
         if (trans.rx_buf[0] != ORCA_SLAVE_ID) {
-            AP_HAL::get_HAL().console->printf("Wrong slave ID count, got %d\n", trans.rx_buf[0]);
+            //AP_HAL::get_HAL().console->printf("Wrong slave ID count, got %d\n", trans.rx_buf[0]);
             return true;
         }
         if (trans.rx_buf[1] != fn) {
-            AP_HAL::get_HAL().console->printf("Wrong function code, got %d\n", trans.rx_buf[1]);
+            //AP_HAL::get_HAL().console->printf("Wrong function code, got %d\n", trans.rx_buf[1]);
             return true;
         }
         return false;
     }
     inline void int32_to_arr_BE(int32_t v, int16_t b[2])
     {
+        if(b == nullptr) {
+            return;
+        }
         b[0] = (int16_t)(v >> 16);
         b[1] = (int16_t)(v & 0xFFFF);
     }
     inline void int32_to_arr_LE(int32_t v, int16_t b[2])
     {
+        if(b == nullptr) {
+            return;
+        }
         b[0] = (int16_t)(v & 0xFFFF);
         b[1] = (int16_t)(v >> 16);
     }
@@ -269,6 +287,9 @@ private:
     }
     inline bool _rb_write(Transmission* t)
     {
+        if(t == nullptr) {
+            return false;
+        }
         if (!_queue_mutex.take_nonblocking()) {
             return false;
         }
@@ -283,6 +304,9 @@ private:
     }
     inline bool _rb_read(Transaction* t)
     {
+        if(t == nullptr) {
+            return false;
+        }
         _queue_mutex.take_blocking();
         if (_rb_empty()) {
             _queue_mutex.give();
@@ -296,15 +320,15 @@ private:
         return true;
     }
 
-    AP_HAL::UARTDriver *motor_uart;
-    Transaction trans = {0};
-    TransactionQueue _trans = {0};
-    bool auto_zero_running = false;
-    uint32_t auto_zero_start_ms = 0;
-    bool _initialised = false;
-    HAL_Semaphore _queue_mutex;
-    HAL_Semaphore _last_healthy_sem;
-    uint32_t _last_received_ms = 0;
-    uint32_t _last_send_ms = 0;
+    AP_HAL::UARTDriver *motor_uart;     // Pointer to the assigned UART driver for this instance
+    Transaction trans = {0};            // The current transaction frame being used by the thread
+    TransactionQueue _trans = {0};      // The queue of messages to be transmitted, coming from outside the thread
+    bool auto_zero_running = false;     // Whether auto zero routine is currently running
+    uint32_t auto_zero_start_ms = 0;    // Start timestamp of auto zero routine
+    bool _initialised = false;          // Whether or not thread main has been intialized for this instance
+    HAL_Semaphore _queue_mutex;         // Mutex for the transmission queue, so reading and writing do not overlap
+    HAL_Semaphore _last_healthy_sem;    // Mutex for the health check, protecting _last_received_ms and _last_send_ms
+    uint32_t _last_received_ms = 0;     // Last message reception from motor
+    uint32_t _last_send_ms = 0;         // Last transmission to motor
 };
 #endif

@@ -30,7 +30,7 @@ protected:
     inline void set_mode(MotorMode _target_mode)
     {
         if (_target_mode == MODE_AUTOZERO) {
-            AP_HAL::get_HAL().console->printf("Use run_auto_zero()\n");
+            //AP_HAL::get_HAL().console->printf("Use run_auto_zero()\n");
             return; // Use run_auto_zero() for param setup check
         }
         this->target_mode = _target_mode;
@@ -53,7 +53,7 @@ protected:
             this->target_mode = MODE_AUTOZERO;
             break;
         default:
-            AP_HAL::get_HAL().console->printf("Set auto_zero_mode in params\n");
+            //AP_HAL::get_HAL().console->printf("Set auto_zero_mode in params\n");
             break;
         }
     }

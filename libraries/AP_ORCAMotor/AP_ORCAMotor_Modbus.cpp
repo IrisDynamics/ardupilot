@@ -164,7 +164,7 @@ void AP_ORCAMotor_Modbus::write(const FunctionCode fn, const uint8_t* const data
     // Check message sizing
     size_t len = 2 + data_len + sub_fn_len + 2; //Slave ID, Fn code, and 2 bytes for CRC
     if (len > ORCAMOTOR_TX_BYTES) {
-        AP_HAL::get_HAL().console->printf("Message too long\n");
+        //AP_HAL::get_HAL().console->printf("Message too long\n");
         return;
     }
     // Allocate buffer and initial index
@@ -241,7 +241,7 @@ void AP_ORCAMotor_Modbus::handle_auto_zero()
 
     readRegister(MOTOR_STATUS, 1);
     if ((AP_HAL::millis() - auto_zero_start_ms) > AUTO_ZERO_TIMEOUT_MS) {
-        AP_HAL::get_HAL().console->printf("Auto-Zero timed out\n");
+        //AP_HAL::get_HAL().console->printf("Auto-Zero timed out\n");
         //TODO: GCS err msg
         target_mode = MODE_SLEEP;
         auto_zero_running = false;
@@ -259,14 +259,14 @@ void AP_ORCAMotor_Modbus::handle_auto_zero()
 bool AP_ORCAMotor_Modbus::check_ping_response()
 {
     if (trans.rx_len < PING_RESPONSE_RX_LEN) {
-        AP_HAL::get_HAL().console->printf("Not enough bytes: %d\n", trans.rx_len);
+        //AP_HAL::get_HAL().console->printf("Not enough bytes: %d\n", trans.rx_len);
         return false;
     }
     const uint8_t expected_response[6] = {0x01, 0x08, 0x00, 0x00, 0x80, 0x1A };
 
     for (uint8_t i = 0; i < PING_RESPONSE_RX_LEN; i++) {
         if (trans.rx_buf[i] != expected_response[i]) {
-            AP_HAL::get_HAL().console->printf("Byte mismatch: Expected %c, got %c\n", expected_response[i], trans.rx_buf[i]);
+            //AP_HAL::get_HAL().console->printf("Byte mismatch: Expected %c, got %c\n", expected_response[i], trans.rx_buf[i]);
             return false;
         }
     }
@@ -305,11 +305,11 @@ bool AP_ORCAMotor_Modbus::check_single_reg_write_response()
         return false;
     }
     if (memcmp(&trans.rx_buf[2], &trans.tx_buf[2], sizeof(uint16_t)) != 0) {
-        AP_HAL::get_HAL().console->printf("Wrong initial address, got %2x%2x\n", trans.rx_buf[2], trans.rx_buf[3]);
+        //AP_HAL::get_HAL().console->printf("Wrong initial address, got %2x%2x\n", trans.rx_buf[2], trans.rx_buf[3]);
         return false;
     }
     if (memcmp(&trans.rx_buf[4], &trans.tx_buf[4], sizeof(uint16_t)) != 0) {
-        AP_HAL::get_HAL().console->printf("Wrong reg value, got %2x%2x\n", trans.rx_buf[4], trans.rx_buf[5]);
+        //AP_HAL::get_HAL().console->printf("Wrong reg value, got %2x%2x\n", trans.rx_buf[4], trans.rx_buf[5]);
         return false;
     }
     return true;
@@ -321,11 +321,11 @@ bool AP_ORCAMotor_Modbus::check_multi_reg_write_response()
         return false;
     }
     if (memcmp(&trans.rx_buf[2], &trans.tx_buf[2], sizeof(uint16_t)) != 0) {
-        AP_HAL::get_HAL().console->printf("Wrong initial address, got %2x%2x\n", trans.rx_buf[2], trans.rx_buf[3]);
+        //AP_HAL::get_HAL().console->printf("Wrong initial address, got %2x%2x\n", trans.rx_buf[2], trans.rx_buf[3]);
         return false;
     }
     if (memcmp(&trans.rx_buf[4], &trans.tx_buf[4], sizeof(uint16_t)) != 0) {
-        AP_HAL::get_HAL().console->printf("Wrong number of regs, got %2x%2x\n", trans.rx_buf[4], trans.rx_buf[5]);
+        //AP_HAL::get_HAL().console->printf("Wrong number of regs, got %2x%2x\n", trans.rx_buf[4], trans.rx_buf[5]);
         return false;
     }
     return true;
@@ -336,11 +336,11 @@ void AP_ORCAMotor_Modbus::handle_stream()
     // Check if we have queued commands from outside the UART thread
     if (!_rb_empty()) {
         _rb_read(&trans);
-        AP_HAL::get_HAL().console->printf("Transmitting queued message:\n");
-        for (int i = 0; i < trans.tx_len; i++) {
-            AP_HAL::get_HAL().console->printf("%02x ", trans.tx_buf[i]);
-        }
-        AP_HAL::get_HAL().console->printf("\n");
+        // AP_HAL::get_HAL().console->printf("Transmitting queued message:\n");
+        // for (int i = 0; i < trans.tx_len; i++) {
+        //     AP_HAL::get_HAL().console->printf("%02x ", trans.tx_buf[i]);
+        // }
+        // AP_HAL::get_HAL().console->printf("\n");
         //AP_HAL::get_HAL().console->printf("Read transaction\nLen: %u\n", trans.tx_len);
         trans.state = SENDING;
         return;
