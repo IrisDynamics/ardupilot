@@ -216,7 +216,7 @@ function ORCAMotor:_check_response()
     end
 
     local response = {}
-    for i = 1, available do
+    for i = 1, self.in_flight.rx_len do
         response[i] = self.uart:read()
     end
     self.last_rx_byte_time = millis()
