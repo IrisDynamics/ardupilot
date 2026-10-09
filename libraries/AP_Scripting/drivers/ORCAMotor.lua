@@ -3,7 +3,6 @@ ORCAMotor.__index = ORCAMotor
 
 -- ArduPilot specific
 local MAV_SEVERITY = { EMERGENCY = 0, ALERT = 1, CRITICAL = 2, ERROR = 3, WARNING = 4, NOTICE = 5, INFO = 6, DEBUG = 7 }
-ORCAMotor.UPDATE_RATE_MS = 50
 
 -- Modbus specific
 local MODBUS_PARTIY = 2
@@ -18,8 +17,11 @@ local MODBUS_TIMEOUT_MS = 1000
 local ORCA_SLAVE_ID = 1
 local ORCA_EXT_CMD_MODE = { NO_CHANGE = 0x00, SLEEP = 0x01, FORCE = 0x02, POSITION = 0x03 }
 ORCAMotor.MODE = { SLEEP = 1, FORCE = 2, POSITION = 3 }
+ORCAMotor.UPDATE_RATE_MS = 100
 
--- Helper functions to parse values from Modbus response
+--==========================================
+-- Utility Functions
+--==========================================
 local parse = {}
 
 -- 16-bit Unsigned Integer
@@ -50,51 +52,9 @@ function parse.i32(bytes, idx)
     return u_val
 end
 
--- Constructor
-function ORCAMotor.new(port_num)
-    local self = setmetatable({}, ORCAMotor)
-
-    -- Initialisation
-    self.uart = serial:find_serial(port_num)
-    if self.uart then
-        self.uart:begin(MODBUS_BAUD)
-        self.uart:configure_parity(MODBUS_PARTIY)
-        self.uart:set_flow_control(MODBUS_FLOW_CTRL)
-        self.uart:set_stop_bits(MODBUS_STOP_BITS)
-        self.uart:set_unbuffered_writes(true) --Enabling this fixed random occurences of write errors
-    else
-        gcs:send_text(MAV_SEVERITY.ERROR, string.format("ORCA%d: Serial port not found", port_num))
-    end
-
-    -- Message variables
-    self.instance = port_num
-    self.queue = {}      -- Gets loaded when users call member functions
-    self.in_flight = nil -- Current transmission
-    self.tx_time = 0
-    self.last_rx_byte_time = 0
-
-    -- Motor state information
-    self.target_position = 0
-    self.target_force = 0
-    self.target_mode = ORCAMotor.MODE.SLEEP
-    self.state = {
-        force_mN = 0,
-        position_um = 0,
-        speed_mm_s = 0,
-        accel_mm_s_2 = 0,
-        board_temp_C = 0,
-        coil_temp_C = 0,
-        voltage_mV = 0,
-        power_W = 0,
-        mode = 0,
-        kin_status = 0,
-        errors = 0,
-        motor_status = 0,
-        read_reg_1 = 0,
-        read_reg_2 = 0
-    }
-    return self
-end
+--==========================================
+-- Processing Tables
+--==========================================
 
 local crc_hi_lookup = {
     0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81,
@@ -138,20 +98,7 @@ local crc_lo_lookup = {
     0x40
 };
 
-local function generate_crc(byte_array, num_bytes)
-    local crc_hi = 0xFF
-    local crc_lo = 0xFF
-    local len = num_bytes or #byte_array
-    for i = 1, len do
-        local idx = (crc_hi ~ byte_array[i]) + 1
-        crc_hi = crc_lo ~ crc_hi_lookup[idx]
-        crc_lo = crc_lo_lookup[idx]
-    end
-    return (crc_hi << 8 | crc_lo)
-end
-
--- Used when parsing Extended Motor Frame response
--- Names must exactly match names in 'state' member variable
+-- Used to map response payload to state table
 local ext_motor_schema = {
     { name = "force_mN",     type = "i32", offset = 3 },
     { name = "position_um",  type = "i32", offset = 7 },
@@ -170,20 +117,38 @@ local ext_motor_schema = {
     { name = "read_reg_2",   type = "i16", offset = 39 }
 }
 
+--==========================================
+-- Modbus Transaction Functions
+--==========================================
+
+-- Generate Modbus CRC
+local function generate_crc(byte_array, num_bytes)
+    local crc_hi = 0xFF
+    local crc_lo = 0xFF
+    local len = num_bytes or #byte_array
+    for i = 1, len do
+        local idx = (crc_hi ~ byte_array[i]) + 1
+        crc_hi = crc_lo ~ crc_hi_lookup[idx]
+        crc_lo = crc_lo_lookup[idx]
+    end
+    return (crc_hi << 8 | crc_lo)
+end
+
 -- Append slave ID, function code, and CRC to TX payload
 local function build_modbus_tx_frame(fn, payload)
     table.insert(payload, 1, ORCA_SLAVE_ID)
     table.insert(payload, 2, fn)
     local crc = generate_crc(payload)
-    table.insert(payload, crc & 0xFF)
-    table.insert(payload, crc >> 8)
+    table.insert(payload, crc & 0xFF) -- Low byte
+    table.insert(payload, crc >> 8)   -- High byte
     return payload
 end
 
 -- Verify slave ID, function code, and CRC in RX frame
 function ORCAMotor:verify_modbus_rx_header(response)
     if response[1] ~= ORCA_SLAVE_ID or response[2] ~= self.in_flight.fn then
-        gcs:send_text(MAV_SEVERITY.WARNING, "Modbus Error: Invalid header or function code response")
+        gcs:send_text(MAV_SEVERITY.WARNING,
+            string.format("ORCA%d: Invalid header or function code response", self.instance))
         return false
     end
 
@@ -191,7 +156,7 @@ function ORCAMotor:verify_modbus_rx_header(response)
     local recv_crc = (response[#response] << 8) | response[#response - 1]
 
     if calc_crc ~= recv_crc then
-        gcs:send_text(MAV_SEVERITY.WARNING, "Modbus Error: CRC Mismatch!")
+        gcs:send_text(MAV_SEVERITY.WARNING, string.format("ORCA%d: CRC mismatch"))
         return false
     end
     return true
@@ -202,7 +167,7 @@ local function build_ext_tx_payload(mode, data, read_addr)
     mode = mode or ORCAMotor.MODE.SLEEP
     data = data or 0
     read_addr = read_addr or 0
-    local payload = {
+    local payload = { -- Bitwise AND needs to be done to guarantee 8-bit length
         mode & 0xFF,
         (data >> 24) & 0xFF,
         (data >> 16) & 0xFF,
@@ -217,9 +182,9 @@ end
 -- Parse the RX payload, returns a table based on provided schema
 local function parse_modbus_rx_payload(data_bytes, schema)
     local result = {}
-    for _, field in ipairs(schema) do
-        local decoder = parse[field.type]
-        if decoder and (field.offset + 1) <= #data_bytes then
+    for _, field in ipairs(schema) do                         -- Iterate through schema
+        local decoder = parse[field.type]                     -- Define what parse function to use
+        if decoder and (field.offset + 1) <= #data_bytes then --Verify that offsets and payload length works
             local raw_val = decoder(data_bytes, field.offset)
             result[field.name] = raw_val
         end
@@ -227,7 +192,11 @@ local function parse_modbus_rx_payload(data_bytes, schema)
     return result
 end
 
--- Ingest a command, build payload, finalise frame, and transmit
+--==========================================
+-- Main Update Loop Functions
+--==========================================
+
+-- Accept a command item, build payload, finalise frame, and transmit
 function ORCAMotor:_transmit_command(cmd)
     local payload = {}
     if cmd.fn == MODBUS_FN_CODE.ORCA_EXT_MTR then
@@ -235,14 +204,8 @@ function ORCAMotor:_transmit_command(cmd)
     end
 
     build_modbus_tx_frame(cmd.fn, payload)
-    if (#payload ~= 11) then
-        gcs:send_text(3, "Malformed UART payload")
-    end
-    for i = 1, #payload do
-        if payload[i] ~= nil then
-            self.uart:write(payload[i])
-        end
-    end
+    local payload_string = string.char(table.unpack(payload))
+    self.uart:writestring(payload_string) -- Faster than writing individual bytes in for loop
 end
 
 -- Receive correct byte count, verify header, and parse response
@@ -251,11 +214,12 @@ function ORCAMotor:_check_response()
     if available < self.in_flight.rx_len then
         return false
     end
-    self.last_rx_byte_time = millis()
+
     local response = {}
     for i = 1, available do
         response[i] = self.uart:read()
     end
+    self.last_rx_byte_time = millis()
 
     if not self:verify_modbus_rx_header(response) then return false end
 
@@ -270,12 +234,8 @@ function ORCAMotor:_build_idle_cmd()
     local cmd = {
         fn = MODBUS_FN_CODE.ORCA_EXT_MTR,
         rx_len = MODBUS_RX_LEN.ORCA_EXT_MTR,
-        reg = nil,
-        reg_count = nil,
         mode = nil,
         data = nil,
-        addr = nil,
-        task = nil
     }
     if self.target_mode == ORCAMotor.MODE.SLEEP then
         cmd.mode = ORCA_EXT_CMD_MODE.SLEEP
@@ -289,34 +249,73 @@ function ORCAMotor:_build_idle_cmd()
     return cmd
 end
 
--- Update function gets called in user script
-function ORCAMotor:update()
-    if self.in_flight then
-        if self:_check_response() then
-            self.in_flight = nil
-        elseif (millis() - self.tx_time) > MODBUS_TIMEOUT_MS then
-            gcs:send_text(MAV_SEVERITY.ERROR, string.format("ORCA%d Error: Command Timeout", self.instance))
-            self.in_flight = nil
-        else
-            return
-        end
-    end
+--==========================================
+-- Private Setters
+--==========================================
 
-    local cmd = {}
-    if #self.queue > 0 and not self.in_flight then
-        cmd = table.remove(self.queue, 1)
-        if cmd.task then cmd.task() end -- Run a function before transmission
-        self:_transmit_command(cmd)
-    elseif not self.in_flight then
-        cmd = self:_build_idle_cmd()
-        self:_transmit_command(cmd)
+-- Private setter functions get called when a queued message is dequeued and 'task' is populated
+function ORCAMotor:_set_position(pos)
+    self.target_position = pos
+    self.target_mode = ORCAMotor.MODE.POSITION
+end
+
+function ORCAMotor:_set_force(force)
+    self.target_force = force
+    self.target_mode = ORCAMotor.MODE.FORCE
+end
+
+function ORCAMotor:_set_mode(mode)
+    self.target_mode = mode
+end
+
+--==========================================
+-- Public Functions
+--==========================================
+
+-- Constructor
+function ORCAMotor.new(port_num)
+    local self = setmetatable({}, ORCAMotor)
+
+    -- Initialisation
+    self.uart = serial:find_serial(port_num)
+    if self.uart then
+        self.uart:begin(MODBUS_BAUD)
+        self.uart:configure_parity(MODBUS_PARTIY)
+        self.uart:set_flow_control(MODBUS_FLOW_CTRL)
+        self.uart:set_stop_bits(MODBUS_STOP_BITS)
+    else
+        gcs:send_text(MAV_SEVERITY.ERROR, string.format("ORCA%d: Serial port not found", port_num))
     end
-    self.in_flight = cmd
-    self.tx_time = millis()
-    local latency = (self.tx_time - self.last_rx_byte_time):toint()
-    if latency > 500 then
-        gcs:send_text(MAV_SEVERITY.WARNING, string.format(" RX->TX Latency: %d ms", latency))
-    end
+    self.instance = port_num
+
+    -- Message variables
+    self.queue = {}      -- Gets loaded when users call public member functions
+    self.in_flight = nil -- Current transmission
+    self.tx_time = 0
+    self.last_rx_byte_time = 0
+
+    -- Motor state information
+    self.target_position = 0
+    self.target_force = 0
+    self.target_mode = ORCAMotor.MODE.SLEEP
+    self.state = {
+        force_mN = 0,
+        position_um = 0,
+        speed_mm_s = 0,
+        accel_mm_s_2 = 0,
+        board_temp_C = 0,
+        coil_temp_C = 0,
+        voltage_mV = 0,
+        power_W = 0,
+        mode = 0,
+        kin_status = 0,
+        kin_count = 0,
+        errors = 0,
+        motor_status = 0,
+        read_reg_1 = 0,
+        read_reg_2 = 0
+    }
+    return self
 end
 
 -- Queue a mode command
@@ -351,18 +350,30 @@ function ORCAMotor:set_target_force_mN(target_force)
     })
 end
 
-function ORCAMotor:_set_position(pos)
-    self.target_position = pos
-    self.target_mode = ORCAMotor.MODE.POSITION
-end
+-- Update function must be called in user script
+function ORCAMotor:update()
+    if self.in_flight then
+        if self:_check_response() then
+            self.in_flight = nil
+        elseif (millis() - self.tx_time) > MODBUS_TIMEOUT_MS then
+            gcs:send_text(MAV_SEVERITY.WARNING, string.format("ORCA%d: Command timeout", self.instance))
+            self.in_flight = nil
+        else
+            return
+        end
+    end
 
-function ORCAMotor:_set_force(force)
-    self.target_force = force
-    self.target_mode = ORCAMotor.MODE.FORCE
-end
-
-function ORCAMotor:_set_mode(mode)
-    self.target_mode = mode
+    local cmd = {}
+    if #self.queue > 0 and not self.in_flight then
+        cmd = table.remove(self.queue, 1)
+        if cmd.task then cmd.task() end -- Run a function before transmission
+        self:_transmit_command(cmd)
+    elseif not self.in_flight then
+        cmd = self:_build_idle_cmd()
+        self:_transmit_command(cmd)
+    end
+    self.in_flight = cmd
+    self.tx_time = millis()
 end
 
 return ORCAMotor
