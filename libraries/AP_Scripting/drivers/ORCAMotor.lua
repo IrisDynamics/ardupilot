@@ -29,8 +29,11 @@ end
 
 -- 16-bit Signed Integer
 function parse.i16(bytes, idx)
-    local val = parse.u16(bytes, idx)
-    return (val >= 0x8000) and (val - 0x10000) or val
+    local u_val = parse.u16(bytes, idx)
+    if u_val >= 0x8000 then
+        return u_val - 0x10000
+    end
+    return u_val
 end
 
 -- 32-bit Unsigned Integer
