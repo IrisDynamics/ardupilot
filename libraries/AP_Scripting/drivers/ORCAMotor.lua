@@ -321,11 +321,7 @@ function ORCAMotor:set_target_mode(target_mode)
     table.insert(self.queue, {
         fn = MODBUS_FN_CODE.ORCA_EXT_MTR,
         rx_len = MODBUS_RX_LEN.ORCA_EXT_MTR,
-        reg = nil,
-        reg_count = nil,
         mode = target_mode,
-        data = nil,
-        addr = nil,
         task = function() self:_set_mode(target_mode) end
     })
 end
@@ -335,11 +331,8 @@ function ORCAMotor:set_target_position_um(target_pos)
     table.insert(self.queue, {
         fn = MODBUS_FN_CODE.ORCA_EXT_MTR,
         rx_len = MODBUS_RX_LEN.ORCA_EXT_MTR,
-        reg = nil,
-        reg_count = nil,
         mode = ORCA_EXT_CMD_MODE.POSITION,
         data = target_pos,
-        addr = nil,
         task = function() self:_set_position(target_pos) end
     })
 end
@@ -349,11 +342,8 @@ function ORCAMotor:set_target_force_mN(target_force)
     table.insert(self.queue, {
         fn = MODBUS_FN_CODE.ORCA_EXT_MTR,
         rx_len = MODBUS_RX_LEN.ORCA_EXT_MTR,
-        reg = nil,
-        reg_count = nil,
         mode = ORCA_EXT_CMD_MODE.FORCE,
         data = target_force,
-        addr = nil,
         task = function() self:_set_force(target_force) end
     })
 end
