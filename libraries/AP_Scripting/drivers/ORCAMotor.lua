@@ -3,21 +3,71 @@ ORCAMotor.__index = ORCAMotor
 
 -- ArduPilot specific
 local MAV_SEVERITY = { EMERGENCY = 0, ALERT = 1, CRITICAL = 2, ERROR = 3, WARNING = 4, NOTICE = 5, INFO = 6, DEBUG = 7 }
+local PARAM_TABLE_KEY = 115
 
 -- Modbus specific
 local MODBUS_PARTIY = 2
 local MODBUS_BAUD = 19200
 local MODBUS_STOP_BITS = 1
 local MODBUS_FLOW_CTRL = 0
-local MODBUS_FN_CODE = { ORCA_EXT_MTR = 0x66 }
-local MODBUS_RX_LEN = { ORCA_EXT_MTR = 42 }
+local MODBUS_FN_CODE = { ORCA_EXT_MTR = 0x66, WRITE_SINGLE_REG = 0x06, WRITE_MULTI_REG = 0x10 }
+local MODBUS_RX_LEN = { ORCA_EXT_MTR = 42, WRITE_SINGLE_REG = 8, WRITE_MULTI_REG = 8 }
 local MODBUS_TIMEOUT_MS = 1000
 
 -- ORCA specific
 local ORCA_SLAVE_ID = 1
 local ORCA_EXT_CMD_MODE = { NO_CHANGE = 0x00, SLEEP = 0x01, FORCE = 0x02, POSITION = 0x03 }
+local REGISTER = {
+    CTRL_REG_0 = 0,
+    CTRL_REG_1 = 1,
+    CTRL_REG_2 = 2,
+    CTRL_REG_3 = 3,
+    CTRL_REG_4 = 4,
+    USER_MAX_FORCE = 140,
+    USER_MAX_FORCE_H = 141,
+    PC_PGAIN = 133,
+    PC_IGAIN = 134,
+    PC_DVGAIN = 135,
+    PC_SOFTSTART_PERIOD = 150,
+    POS_MAX_VEL = 153,
+    POS_MAX_ACCEL = 154,
+    POS_MAX_DECEL = 155,
+    ZERO_MODE = 171,
+    AUTO_ZERO_FORCE_N = 172,
+    AUTO_ZERO_EXIT_MODE = 173,
+    AUTO_ZERO_SPEED_MMPS = 177,
+    MOTOR_STATUS = 321
+};
 ORCAMotor.MODE = { SLEEP = 1, FORCE = 2, POSITION = 3 }
 ORCAMotor.UPDATE_RATE_MS = 100
+
+function ORCAMotor:bind_add_param(name, idx, default_value)
+    assert(param:add_param(PARAM_TABLE_KEY, idx, name, default_value), string.format("could not add param %s", name))
+    return Parameter(self.param_prefix .. name)
+end
+
+--==========================================
+-- Parameter Setup
+--==========================================
+function ORCAMotor:_parameter_init()
+    self.param_prefix = string.format("ORCA%d_", self.instance)
+    assert(param:add_table(PARAM_TABLE_KEY, self.param_prefix, 14), string.format("could not add param table %s", self.param_prefix))
+
+    self.params["enable"] = self:bind_add_param("ENABLE", 1, 0)
+    self.params["force_saturation"] = self:bind_add_param("FORCE_SAT", 2, 300000)
+    self.params["p_gain_pid"] = self:bind_add_param("P_PID", 3, 1000)
+    self.params["i_gain_pid"] = self:bind_add_param("I_PID", 4, 2000)
+    self.params["d_gain_pid"] = self:bind_add_param("D_PID", 5, 100)
+    self.params["speed_limit"] = self:bind_add_param("SPD_LIM", 6, 1000)
+    self.params["accel_limit"] = self:bind_add_param("ACC_LIM", 7, 1000)
+    self.params["decel_limit"] = self:bind_add_param("DEC_LIM", 8, 1000)
+    self.params["softstart_duration"] = self:bind_add_param("SOFT_MS", 9, 3000)
+    self.params["invert_position"] = self:bind_add_param("INV_POS", 10, 0)
+    self.params["autozero_mode"] = self:bind_add_param("AZ_MODE", 11, 0)
+    self.params["autozero_force"] = self:bind_add_param("AZ_FORCE", 12, 30)
+    self.params["autozero_speed"] = self:bind_add_param("AZ_SPD", 13, 50)
+    self.params["autozero_exit_mode"] = self:bind_add_param("AZ_EXIT", 14, ORCAMotor.MODE.SLEEP)
+end
 
 --==========================================
 -- Utility Functions
@@ -179,6 +229,27 @@ local function build_ext_tx_payload(mode, data, read_addr)
     return payload
 end
 
+local function build_write_tx_payload(fn, reg, data)
+    local payload = {}
+    if fn == MODBUS_FN_CODE.WRITE_SINGLE_REG then
+        payload[1] = (reg >> 8) & 0xFF
+        payload[2] = reg & 0xFF
+        payload[3] = (data >> 8) & 0xFF
+        payload[4] = data & 0xFF
+    else
+        for _, val in ipairs(data) do
+            table.insert(payload, (val >> 8) & 0xFF)
+            table.insert(payload, val & 0xFF)
+        end
+        table.insert(payload, 1, (reg >> 8) & 0xFF)
+        table.insert(payload, 2, reg & 0xFF)
+        table.insert(payload, 3, (#data >> 8) & 0xFF)
+        table.insert(payload, 4, #data & 0xFF)
+        table.insert(payload, 5, (#data * 2) & 0xFF)
+    end
+    return payload
+end
+
 -- Parse the RX payload, returns a table based on provided schema
 local function parse_modbus_rx_payload(data_bytes, schema)
     local result = {}
@@ -192,17 +263,65 @@ local function parse_modbus_rx_payload(data_bytes, schema)
     return result
 end
 
+-- Queue a Modbus register write
+-- 'data' can be a single value or table of values for multiple write
+function ORCAMotor:_queue_write_register(reg, data)
+    if not reg or not data then
+        gcs:send_text(MAV_SEVERITY.WARNING, string.format("ORCA%d: Invalid register or data"))
+        return
+    end
+
+    local fn = 0
+    local rx_len = 0
+    if type(data) == "table" then
+        fn = MODBUS_FN_CODE.WRITE_MULTI_REG 
+        rx_len = MODBUS_RX_LEN.WRITE_MULTI_REG
+    else
+        fn = MODBUS_FN_CODE.WRITE_SINGLE_REG 
+        rx_len = MODBUS_RX_LEN.WRITE_SINGLE_REG
+    end
+
+    table.insert(self.queue, {
+        fn = fn,
+        rx_len = rx_len,
+        reg = reg,
+        data = data
+    })
+end
+
+function ORCAMotor:_verify_modbus_write_response(response)
+    local valid = false
+    local recv_reg = ((response[3] << 8) & 0xFF00) | (response[4] & 0xFF)
+    local recv_data = ((response[5] << 8) & 0xFF00) | (response[6] & 0xFF)
+    if self.in_flight.fn == MODBUS_FN_CODE.WRITE_SINGLE_REG then
+        valid = recv_reg == self.in_flight.reg and recv_data == self.in_flight.data
+    else
+        valid = recv_reg == self.in_flight.reg and recv_data == #self.in_flight.data
+    end
+    if not valid then
+        gcs:send_text(MAV_SEVERITY.WARNING, string.format("ORCA%d: Modbus write response mismatch", self.instance))
+        return false
+    end
+    return true
+end
+
 --==========================================
 -- Main Update Loop Functions
 --==========================================
 
 -- Accept a command item, build payload, finalise frame, and transmit
 function ORCAMotor:_transmit_command(cmd)
+    -- Flush read buffer
+    while self.uart:available():toint() > 0 do
+        self.uart:read()
+    end
+
     local payload = {}
     if cmd.fn == MODBUS_FN_CODE.ORCA_EXT_MTR then
         payload = build_ext_tx_payload(cmd.mode, cmd.data, cmd.addr)
+    elseif cmd.fn == MODBUS_FN_CODE.WRITE_SINGLE_REG or cmd.fn == MODBUS_FN_CODE.WRITE_MULTI_REG then
+        payload = build_write_tx_payload(cmd.fn, cmd.reg, cmd.data)
     end
-
     build_modbus_tx_frame(cmd.fn, payload)
     local payload_string = string.char(table.unpack(payload))
     self.uart:writestring(payload_string) -- Faster than writing individual bytes in for loop
@@ -221,10 +340,12 @@ function ORCAMotor:_check_response()
     end
     self.last_rx_byte_time = millis()
 
-    if not self:verify_modbus_rx_header(response) then return false end
+    if not self:verify_modbus_rx_header(response) then return true end
 
     if self.in_flight.fn == MODBUS_FN_CODE.ORCA_EXT_MTR then
         self.state = parse_modbus_rx_payload(response, ext_motor_schema) -- Populates the current state
+    elseif self.in_flight.fn == MODBUS_FN_CODE.WRITE_SINGLE_REG or self.in_flight.fn == MODBUS_FN_CODE.WRITE_MULTI_REG then
+        self:_verify_modbus_write_response(response)
     end
     return true
 end
@@ -273,8 +394,12 @@ end
 --==========================================
 
 -- Constructor
-function ORCAMotor.new(port_num)
+function ORCAMotor.new(port_num, instance_num)
     local self = setmetatable({}, ORCAMotor)
+
+    self.instance = instance_num
+    self.params = {}
+    self:_parameter_init()
 
     -- Initialisation
     self.uart = serial:find_serial(port_num)
@@ -286,7 +411,7 @@ function ORCAMotor.new(port_num)
     else
         gcs:send_text(MAV_SEVERITY.ERROR, string.format("ORCA%d: Serial port not found", port_num))
     end
-    self.instance = port_num
+
 
     -- Message variables
     self.queue = {}      -- Gets loaded when users call public member functions
@@ -374,6 +499,27 @@ function ORCAMotor:update()
     end
     self.in_flight = cmd
     self.tx_time = millis()
+end
+
+-- Called by user to load params into motor
+function ORCAMotor:load_params()
+    local force = {
+        self.params.force_saturation:get() & 0xFFFF,
+        (self.params.force_saturation:get() >> 16) & 0xFFFF 
+    }
+    self:_queue_write_register(REGISTER.USER_MAX_FORCE, force)
+    self:_queue_write_register(REGISTER.PC_PGAIN, self.params.p_gain_pid:get())
+    self:_queue_write_register(REGISTER.PC_IGAIN, self.params.i_gain_pid:get())
+    self:_queue_write_register(REGISTER.PC_DVGAIN, self.params.d_gain_pid:get())
+    self:_queue_write_register(REGISTER.PC_PGAIN, self.params.p_gain_pid:get())
+    self:_queue_write_register(REGISTER.POS_MAX_VEL, self.params.speed_limit:get())
+    self:_queue_write_register(REGISTER.POS_MAX_ACCEL, self.params.accel_limit:get())
+    self:_queue_write_register(REGISTER.POS_MAX_DECEL, self.params.decel_limit:get())
+    self:_queue_write_register(REGISTER.PC_SOFTSTART_PERIOD, self.params.softstart_duration:get())
+    self:_queue_write_register(REGISTER.ZERO_MODE, self.params.autozero_mode:get())
+    self:_queue_write_register(REGISTER.AUTO_ZERO_FORCE_N, self.params.autozero_force:get())
+    self:_queue_write_register(REGISTER.AUTO_ZERO_SPEED_MMPS, self.params.autozero_speed:get())
+    self:_queue_write_register(REGISTER.AUTO_ZERO_EXIT_MODE, self.params.autozero_exit_mode:get())
 end
 
 return ORCAMotor
