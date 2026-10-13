@@ -266,21 +266,8 @@ end
 -- Queue a Modbus register write
 -- 'data' can be a single value or table of values for multiple write
 function ORCAMotor:_queue_write_register(reg, data)
-    if not reg or not data then
-        gcs:send_text(MAV_SEVERITY.WARNING, string.format("ORCA%d: Invalid register or data"))
-        return
-    end
-
-    local fn = 0
-    local rx_len = 0
-    if type(data) == "table" then
-        fn = MODBUS_FN_CODE.WRITE_MULTI_REG 
-        rx_len = MODBUS_RX_LEN.WRITE_MULTI_REG
-    else
-        fn = MODBUS_FN_CODE.WRITE_SINGLE_REG 
-        rx_len = MODBUS_RX_LEN.WRITE_SINGLE_REG
-    end
-
+    local fn = type(data) == "table" and MODBUS_FN_CODE.WRITE_MULTI_REG or MODBUS_FN_CODE.WRITE_SINGLE_REG
+    local rx_len = type(data) == "table" and MODBUS_RX_LEN.WRITE_MULTI_REG or MODBUS_RX_LEN.WRITE_SINGLE_REG
     table.insert(self.queue, {
         fn = fn,
         rx_len = rx_len,
