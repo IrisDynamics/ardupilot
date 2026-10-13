@@ -53,6 +53,7 @@ local ORCA_ERR = {
     COMM_TIMEOUT = { mask = 2048, severity = MAV_SEVERITY.WARNING, resolve = ORCA_ERR_HANDLER.SLEEP, message = "increase update() frequency" },
     AUTO_ZERO_FAIL = { mask = 8192, severity = MAV_SEVERITY.WARNING, resolve = ORCA_ERR_HANDLER.SLEEP, message = "check auto zero settings" }
 }
+ORCAMotor.STATUS = {QUEUED = 0, PROCESSING = 1, OK = 2, ERROR = 3}
 
 --==========================================
 -- Parameter Setup
@@ -441,6 +442,7 @@ function ORCAMotor:_verify_modbus_write_response(response)
     end
     if not valid then
         gcs:send_text(MAV_SEVERITY.WARNING, string.format("ORCA%d: Modbus write response mismatch", self.instance))
+        self:_update_cmd_status(ORCAMotor.STATUS.ERROR)
         return false
     end
     return true
@@ -465,7 +467,10 @@ function ORCAMotor:_transmit_command(cmd)
     end
     build_modbus_tx_frame(cmd.fn, payload)
     local payload_string = string.char(table.unpack(payload))
-    self.uart:writestring(payload_string) -- Faster than writing individual bytes in for loop
+    if not self.uart:writestring(payload_string)  then -- Faster than writing individual bytes in for loop
+        gcs:send_text(MAV_SEVERITY.ERROR, string.format("ORCA%d: 'writestring' failed"))
+        self:_update_cmd_status(ORCAMotor.STATUS.ERROR)
+    end
 end
 
 -- Receive correct byte count, verify header, and parse response
@@ -481,13 +486,18 @@ function ORCAMotor:_check_response()
     end
     self.last_rx_byte_time = millis()
 
-    if not self:verify_modbus_rx_header(response) then return true end
+    if not self:verify_modbus_rx_header(response) then
+        self:_update_cmd_status(ORCAMotor.STATUS.ERROR)
+        return true
+    end
 
     if self.in_flight.fn == MODBUS_FN_CODE.ORCA_EXT_MTR then
         self.state = parse_modbus_rx_payload(response, ext_motor_schema) -- Populates the current state
         self:_parse_reported_errors()
+        self:_update_cmd_status(ORCAMotor.STATUS.OK)
     elseif self.in_flight.fn == MODBUS_FN_CODE.WRITE_SINGLE_REG or self.in_flight.fn == MODBUS_FN_CODE.WRITE_MULTI_REG then
-        self:_verify_modbus_write_response(response)
+        local status = self:_verify_modbus_write_response(response) and ORCAMotor.STATUS.OK or ORCAMotor.STATUS.ERROR
+        self:_update_cmd_status(status)
     end
     return true
 end
@@ -511,6 +521,10 @@ function ORCAMotor:_build_idle_cmd()
     end
     return cmd
 end
+
+--==========================================
+-- Error Handling and Status Monitoring
+--==========================================
 
 -- Control rate of logging so duplicate errors do not log at update rate
 function ORCAMotor:_log_error(err_key, err, msg)
@@ -545,6 +559,12 @@ function ORCAMotor:_parse_reported_errors()
             self.last_err = err.mask
             self:_handle_errror(err_key, err)
         end
+    end
+end
+
+function ORCAMotor:_update_cmd_status(status)
+    if self.in_flight.handle then
+        self.in_flight.handle.status = status
     end
 end
 
@@ -626,34 +646,52 @@ end
 
 -- Queue a mode command
 function ORCAMotor:set_target_mode(target_mode)
+    local handle = {
+        id = millis(),
+        status = ORCAMotor.STATUS.QUEUED
+    }
     table.insert(self.queue, {
         fn = MODBUS_FN_CODE.ORCA_EXT_MTR,
         rx_len = MODBUS_RX_LEN.ORCA_EXT_MTR,
         mode = target_mode,
-        task = function() self:_set_mode(target_mode) end
+        task = function() self:_set_mode(target_mode) end,
+        handle = handle
     })
+    return handle
 end
 
 -- Queue a position command
 function ORCAMotor:set_target_position_um(target_pos)
+    local handle = {
+        id = millis(),
+        status = ORCAMotor.STATUS.QUEUED
+    }
     table.insert(self.queue, {
         fn = MODBUS_FN_CODE.ORCA_EXT_MTR,
         rx_len = MODBUS_RX_LEN.ORCA_EXT_MTR,
         mode = ORCA_EXT_CMD_MODE.POSITION,
         data = target_pos,
-        task = function() self:_set_position(target_pos) end
+        task = function() self:_set_position(target_pos) end,
+        handle = handle
     })
+    return handle
 end
 
 -- Queue a force command
 function ORCAMotor:set_target_force_mN(target_force)
+    local handle = {
+        id = millis(),
+        status = ORCAMotor.STATUS.QUEUED
+    }
     table.insert(self.queue, {
         fn = MODBUS_FN_CODE.ORCA_EXT_MTR,
         rx_len = MODBUS_RX_LEN.ORCA_EXT_MTR,
         mode = ORCA_EXT_CMD_MODE.FORCE,
         data = target_force,
-        task = function() self:_set_force(target_force) end
+        task = function() self:_set_force(target_force) end,
+        handle = handle
     })
+    return handle
 end
 
 -- Update function must be called in user script
@@ -670,6 +708,7 @@ function ORCAMotor:update()
             self.in_flight = nil
         elseif (millis() - self.tx_time) > MODBUS_TIMEOUT_MS then
             gcs:send_text(MAV_SEVERITY.WARNING, string.format("ORCA%d: Command timeout", self.instance))
+            self:_update_cmd_status(ORCAMotor.STATUS.ERROR)
             self.in_flight = nil
         else
             return
@@ -680,12 +719,12 @@ function ORCAMotor:update()
     if #self.queue > 0 and not self.in_flight then
         cmd = table.remove(self.queue, 1)
         if cmd.task then cmd.task() end -- Run a function before transmission
-        self:_transmit_command(cmd)
     elseif not self.in_flight then
         cmd = self:_build_idle_cmd()
-        self:_transmit_command(cmd)
     end
     self.in_flight = cmd
+    self:_update_cmd_status(ORCAMotor.STATUS.PROCESSING)
+    self:_transmit_command(cmd)
     self.tx_time = millis()
 end
 
