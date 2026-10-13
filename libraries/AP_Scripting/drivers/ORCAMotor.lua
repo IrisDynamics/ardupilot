@@ -41,18 +41,19 @@ local REGISTER = {
 ORCAMotor.MODE = { SLEEP = 1, FORCE = 2, POSITION = 3 }
 ORCAMotor.UPDATE_RATE_MS = 100
 
+--==========================================
+-- Parameter Setup
+--==========================================
+
 function ORCAMotor:bind_add_param(name, idx, default_value)
     assert(param:add_param(PARAM_TABLE_KEY, idx, name, default_value), string.format("could not add param %s", name))
     return Parameter(self.param_prefix .. name)
 end
 
---==========================================
--- Parameter Setup
---==========================================
-
 function ORCAMotor:_parameter_init()
     self.param_prefix = string.format("ORCA%d_", self.instance)
-    assert(param:add_table(PARAM_TABLE_KEY, self.param_prefix, 15), string.format("could not add param table %s", self.param_prefix))
+    assert(param:add_table(PARAM_TABLE_KEY, self.param_prefix, 15),
+        string.format("could not add param table %s", self.param_prefix))
 
     --[[
     // @Param: TYPE
@@ -75,7 +76,7 @@ function ORCAMotor:_parameter_init()
     --[[
     // @Param: P_PID
     // @DisplayName: Proportional action gain
-    // @Description: Sets proportional action gain (N/mm), increasing force based on current position error - scaled 64x 
+    // @Description: Sets proportional action gain (N/mm), increasing force based on current position error - scaled 64x
     // @Range: 0 32767
     // @User: Advanced
     --]]
@@ -101,7 +102,7 @@ function ORCAMotor:_parameter_init()
 
     --[[
     // @Param: SPD_LIM
-    // @DisplayName: Max velocity 
+    // @DisplayName: Max velocity
     // @Description: Sets the maximum shaft velocity (mm/s) in Position Mode
     // @Values: 0:Infinite
     // @Range: 0 32767
@@ -629,7 +630,7 @@ end
 function ORCAMotor:load_params()
     local force = {
         self.params.force_saturation:get() & 0xFFFF,
-        (self.params.force_saturation:get() >> 16) & 0xFFFF 
+        (self.params.force_saturation:get() >> 16) & 0xFFFF
     }
     self:_queue_write_register(REGISTER.USER_MAX_FORCE, force)
     self:_queue_write_register(REGISTER.PC_PGAIN, self.params.p_gain_pid:get())
