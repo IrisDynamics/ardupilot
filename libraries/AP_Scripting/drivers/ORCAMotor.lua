@@ -4,6 +4,7 @@ ORCAMotor.__index = ORCAMotor
 -- ArduPilot specific
 local MAV_SEVERITY = { EMERGENCY = 0, ALERT = 1, CRITICAL = 2, ERROR = 3, WARNING = 4, NOTICE = 5, INFO = 6, DEBUG = 7 }
 local PARAM_TABLE_KEY = 115
+local ERROR_LOG_RATE = 10000
 
 -- Modbus specific
 local MODBUS_PARTIY = 2
@@ -40,6 +41,18 @@ local REGISTER = {
 };
 ORCAMotor.MODE = { SLEEP = 1, FORCE = 2, POSITION = 3 }
 ORCAMotor.UPDATE_RATE_MS = 100
+local ORCA_ERR_HANDLER = { AUTO = 0, RESET = 1, SLEEP = 3, EXTERNAL = 4, EXTERNAL_AND_SLEEP = 5 }
+local ORCA_ERR = {
+    CONFIG = { mask = 1, severity = MAV_SEVERITY.ERROR, resolve = ORCA_ERR_HANDLER.RESET, message = "verify params" },
+    FORCE_CLIP = { mask = 32, severity = MAV_SEVERITY.NOTICE, resolve = ORCA_ERR_HANDLER.AUTO, message = "force reduced" },
+    TEMP_EXCEEDED = { mask = 64, severity = MAV_SEVERITY.WARNING, resolve = ORCA_ERR_HANDLER.SLEEP, message = "check temp limits" },
+    FORCE_EXCEEDED = { mask = 128, severity = MAV_SEVERITY.NOTICE, resolve = ORCA_ERR_HANDLER.AUTO, message = "check force limits" },
+    POWER_EXCEEDED = { mask = 256, severity = MAV_SEVERITY.ERROR, resolve = ORCA_ERR_HANDLER.SLEEP, message = "check power limits" },
+    SHAFT_FAILED = { mask = 512, severity = MAV_SEVERITY.ERROR, resolve = ORCA_ERR_HANDLER.EXTERNAL_AND_SLEEP, message = "re-insert shaft" },
+    VOLTAGE_INVALID = { mask = 1024, severity = MAV_SEVERITY.ERROR, resolve = ORCA_ERR_HANDLER.EXTERNAL, message = "check power supply" },
+    COMM_TIMEOUT = { mask = 2048, severity = MAV_SEVERITY.WARNING, resolve = ORCA_ERR_HANDLER.SLEEP, message = "increase update() frequency" },
+    AUTO_ZERO_FAIL = { mask = 8192, severity = MAV_SEVERITY.WARNING, resolve = ORCA_ERR_HANDLER.SLEEP, message = "check auto zero settings" }
+}
 
 --==========================================
 -- Parameter Setup
@@ -395,15 +408,24 @@ end
 
 -- Queue a Modbus register write
 -- 'data' can be a single value or table of values for multiple write
-function ORCAMotor:_queue_write_register(reg, data)
+function ORCAMotor:_queue_write_register(reg, data, pos)
     local fn = type(data) == "table" and MODBUS_FN_CODE.WRITE_MULTI_REG or MODBUS_FN_CODE.WRITE_SINGLE_REG
     local rx_len = type(data) == "table" and MODBUS_RX_LEN.WRITE_MULTI_REG or MODBUS_RX_LEN.WRITE_SINGLE_REG
-    table.insert(self.queue, {
+    if pos then
+        table.insert(self.queue, pos, {
+            fn = fn,
+            rx_len = rx_len,
+            reg = reg,
+            data = data
+        })
+    else
+        table.insert(self.queue, {
         fn = fn,
         rx_len = rx_len,
         reg = reg,
         data = data
-    })
+        })
+    end
 end
 
 function ORCAMotor:_verify_modbus_write_response(response)
@@ -461,6 +483,7 @@ function ORCAMotor:_check_response()
 
     if self.in_flight.fn == MODBUS_FN_CODE.ORCA_EXT_MTR then
         self.state = parse_modbus_rx_payload(response, ext_motor_schema) -- Populates the current state
+        self:_parse_reported_errors()
     elseif self.in_flight.fn == MODBUS_FN_CODE.WRITE_SINGLE_REG or self.in_flight.fn == MODBUS_FN_CODE.WRITE_MULTI_REG then
         self:_verify_modbus_write_response(response)
     end
@@ -485,6 +508,42 @@ function ORCAMotor:_build_idle_cmd()
         cmd.data = self.target_force
     end
     return cmd
+end
+
+-- Control rate of logging so duplicate errors do not log at update rate
+function ORCAMotor:_log_error(err_key, err, msg)
+    if err.mask == self.last_err and (millis() - self.last_err_log_ms) < ERROR_LOG_RATE then return end
+    gcs:send_text(err.severity, string.format("ORCA%d ERR:%s - %s", self.instance, err_key, err.message))
+    gcs:send_text(err.severity, string.format("ORCA%d fix: %s", self.instance, msg))
+    self.last_err_log_ms = millis()
+end
+
+-- Handle error based on error clear method <- taken from ORCA reference manual
+function ORCAMotor:_handle_errror(err_key, err)
+    if err.resolve == ORCA_ERR_HANDLER.AUTO then
+        self:_log_error(err_key, err, "automatic")
+    elseif err.resolve == ORCA_ERR_HANDLER.RESET then
+        self:_log_error(err_key, err, "factory resetting...")
+        self:_queue_write_register(REGISTER.CTRL_REG_0, 0x01, 1)
+    elseif err.resolve == ORCA_ERR_HANDLER.SLEEP then
+        self:_log_error(err_key, err, "sleeping...")
+        self:set_target_mode(ORCAMotor.MODE.SLEEP)
+    elseif err.resolve == ORCA_ERR_HANDLER.EXTERNAL then
+        self:_log_error(err_key, err, "external")
+    elseif err.resolve == ORCA_ERR_HANDLER.EXTERNAL_AND_SLEEP then
+        self:_log_error(err_key, err, "external + sleeping...")
+        self:set_target_mode(ORCAMotor.MODE.SLEEP)
+    end
+end
+
+-- Parse the error table populated by the idle command
+function ORCAMotor:_parse_reported_errors()
+    for err_key, err in pairs(ORCA_ERR) do
+        if self.state.errors & err.mask == err.mask then
+            self.last_err = err.mask
+            self:_handle_errror(err_key, err)
+        end
+    end
 end
 
 --==========================================
@@ -558,6 +617,8 @@ function ORCAMotor.new(port_num, instance_num)
         read_reg_1 = 0,
         read_reg_2 = 0
     }
+    self.last_err = nil
+    self.last_err_log_ms = 0
     return self
 end
 
