@@ -56,7 +56,7 @@ function ORCAMotor:_parameter_init()
         string.format("could not add param table %s", self.param_prefix))
 
     --[[
-    // @Param: TYPE
+    // @Param: ENABLE
     // @DisplayName: ORCA enable
     // @Description: ORCA enable
     // @Values: 0:Disabled, 1:Enabled
