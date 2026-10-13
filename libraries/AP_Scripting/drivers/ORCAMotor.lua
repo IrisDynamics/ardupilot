@@ -372,6 +372,7 @@ local function build_ext_tx_payload(mode, data, read_addr)
     return payload
 end
 
+-- Build the TX payload for a Modbus write command (single or multi-register)
 local function build_write_tx_payload(fn, reg, data)
     local payload = {}
     if fn == MODBUS_FN_CODE.WRITE_SINGLE_REG then
@@ -408,11 +409,12 @@ end
 
 -- Queue a Modbus register write
 -- 'data' can be a single value or table of values for multiple write
-function ORCAMotor:_queue_write_register(reg, data, pos)
+-- set front to to 'true' to push to front of queue
+function ORCAMotor:_queue_write_register(reg, data, front)
     local fn = type(data) == "table" and MODBUS_FN_CODE.WRITE_MULTI_REG or MODBUS_FN_CODE.WRITE_SINGLE_REG
     local rx_len = type(data) == "table" and MODBUS_RX_LEN.WRITE_MULTI_REG or MODBUS_RX_LEN.WRITE_SINGLE_REG
-    if pos then
-        table.insert(self.queue, pos, {
+    if front then
+        table.insert(self.queue, 1, {
             fn = fn,
             rx_len = rx_len,
             reg = reg,
@@ -524,7 +526,7 @@ function ORCAMotor:_handle_errror(err_key, err)
         self:_log_error(err_key, err, "automatic")
     elseif err.resolve == ORCA_ERR_HANDLER.RESET then
         self:_log_error(err_key, err, "factory resetting...")
-        self:_queue_write_register(REGISTER.CTRL_REG_0, 0x01, 1)
+        self:_queue_write_register(REGISTER.CTRL_REG_0, 0x01, true)
     elseif err.resolve == ORCA_ERR_HANDLER.SLEEP then
         self:_log_error(err_key, err, "sleeping...")
         self:set_target_mode(ORCAMotor.MODE.SLEEP)
