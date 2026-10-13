@@ -53,7 +53,7 @@ local ORCA_ERR = {
     COMM_TIMEOUT = { mask = 2048, severity = MAV_SEVERITY.WARNING, resolve = ORCA_ERR_HANDLER.SLEEP, message = "increase update() frequency" },
     AUTO_ZERO_FAIL = { mask = 8192, severity = MAV_SEVERITY.WARNING, resolve = ORCA_ERR_HANDLER.SLEEP, message = "check auto zero settings" }
 }
-ORCAMotor.STATUS = {QUEUED = 0, PROCESSING = 1, OK = 2, ERROR = 3}
+ORCAMotor.STATUS = { QUEUED = 0, PROCESSING = 1, OK = 2, ERROR = 3 }
 
 --==========================================
 -- Parameter Setup
@@ -410,7 +410,7 @@ end
 
 -- Queue a Modbus register write
 -- 'data' can be a single value or table of values for multiple write
--- set front to to 'true' to push to front of queue
+-- set front to 'true' to push to front of queue
 function ORCAMotor:_queue_write_register(reg, data, front)
     local fn = type(data) == "table" and MODBUS_FN_CODE.WRITE_MULTI_REG or MODBUS_FN_CODE.WRITE_SINGLE_REG
     local rx_len = type(data) == "table" and MODBUS_RX_LEN.WRITE_MULTI_REG or MODBUS_RX_LEN.WRITE_SINGLE_REG
@@ -423,10 +423,10 @@ function ORCAMotor:_queue_write_register(reg, data, front)
         })
     else
         table.insert(self.queue, {
-        fn = fn,
-        rx_len = rx_len,
-        reg = reg,
-        data = data
+            fn = fn,
+            rx_len = rx_len,
+            reg = reg,
+            data = data
         })
     end
 end
@@ -467,7 +467,7 @@ function ORCAMotor:_transmit_command(cmd)
     end
     build_modbus_tx_frame(cmd.fn, payload)
     local payload_string = string.char(table.unpack(payload))
-    if not self.uart:writestring(payload_string)  then -- Faster than writing individual bytes in for loop
+    if not self.uart:writestring(payload_string) then  -- Faster than writing individual bytes in for loop
         gcs:send_text(MAV_SEVERITY.ERROR, string.format("ORCA%d: 'writestring' failed"))
         self:_update_cmd_status(ORCAMotor.STATUS.ERROR)
     end
@@ -526,7 +526,7 @@ end
 -- Error Handling and Status Monitoring
 --==========================================
 
--- Control rate of logging so duplicate errors do not log at update rate
+-- Control rate of logging so duplicate errors do not spam Mavlink
 function ORCAMotor:_log_error(err_key, err, msg)
     if err.mask == self.last_err and (millis() - self.last_err_log_ms) < ERROR_LOG_RATE then return end
     gcs:send_text(err.severity, string.format("ORCA%d ERR:%s - %s", self.instance, err_key, err.message))
@@ -563,6 +563,8 @@ function ORCAMotor:_parse_reported_errors()
     end
 end
 
+-- Gets called as transaction progresses
+-- Only updates for user-called functions (except param load)
 function ORCAMotor:_update_cmd_status(status)
     if self.in_flight.handle then
         self.in_flight.handle.status = status
