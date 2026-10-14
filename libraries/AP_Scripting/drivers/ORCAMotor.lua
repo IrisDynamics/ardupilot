@@ -411,7 +411,7 @@ end
 -- Queue a Modbus register write
 -- 'data' can be a single value or table of values for multiple write
 -- set front to 'true' to push to front of queue
-function ORCAMotor:_queue_write_register(reg, data, front)
+function ORCAMotor:_queue_write_register(reg, data, front, handle)
     local fn = type(data) == "table" and MODBUS_FN_CODE.WRITE_MULTI_REG or MODBUS_FN_CODE.WRITE_SINGLE_REG
     local rx_len = type(data) == "table" and MODBUS_RX_LEN.WRITE_MULTI_REG or MODBUS_RX_LEN.WRITE_SINGLE_REG
     if front then
@@ -419,14 +419,16 @@ function ORCAMotor:_queue_write_register(reg, data, front)
             fn = fn,
             rx_len = rx_len,
             reg = reg,
-            data = data
+            data = data,
+            handle = handle and handle or nil
         })
     else
         table.insert(self.queue, {
             fn = fn,
             rx_len = rx_len,
             reg = reg,
-            data = data
+            data = data,
+            handle = handle and handle or nil
         })
     end
 end
@@ -880,5 +882,14 @@ function ORCAMotor:get_auto_zero_running()
     return self.auto_zero_running
 end
 
+-- Set current position to zero
+function ORCAMotor:zero_current_position()
+    local handle = {
+        id = millis(),
+        status = ORCAMotor.STATUS.QUEUED
+    }
+    self:_queue_write_register(REGISTER.CTRL_REG_0, 0x0004, true, handle)
+    return handle
+end
 
 return ORCAMotor
