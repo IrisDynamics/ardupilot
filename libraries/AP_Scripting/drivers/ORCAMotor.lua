@@ -869,7 +869,13 @@ end
 
 -- Clears latched and active errors
 function ORCAMotor:clear_motor_errors()
-    self:_queue_write_register(REGISTER.CTRL_REG_0, 0x0002, true)
+    local handle = {
+        id = millis(),
+        status = ORCAMotor.STATUS.QUEUED
+    }
+    self:_queue_write_register(REGISTER.CTRL_REG_0, 0x0002, true, handle)
+    return handle
+end
 
 -- Set the timeout for the auto zero routine
 function ORCAMotor:set_auto_zero_timeout(ms)
