@@ -11,8 +11,8 @@ local MODBUS_PARTIY = 2
 local MODBUS_BAUD = 19200
 local MODBUS_STOP_BITS = 1
 local MODBUS_FLOW_CTRL = 0
-local MODBUS_FN_CODE = { ORCA_EXT_MTR = 0x66, WRITE_SINGLE_REG = 0x06, WRITE_MULTI_REG = 0x10 }
-local MODBUS_RX_LEN = { ORCA_EXT_MTR = 42, WRITE_SINGLE_REG = 8, WRITE_MULTI_REG = 8 }
+local MODBUS_FN_CODE = { ORCA_EXT_MTR = 0x66, WRITE_SINGLE_REG = 0x06, WRITE_MULTI_REG = 0x10, READ_SINGLE_REG = 0x03 }
+local MODBUS_RX_LEN = { ORCA_EXT_MTR = 42, WRITE_SINGLE_REG = 8, WRITE_MULTI_REG = 8, READ_SINGLE_REG = 7 }
 local MODBUS_TIMEOUT_MS = 1000
 
 -- ORCA specific
@@ -447,6 +447,18 @@ function ORCAMotor:_verify_modbus_write_response(response)
     return true
 end
 
+function ORCAMotor:_verify_modbus_read_response(response)
+    local valid = false
+    local byte_count = response[3] & 0xFF
+    valid = byte_count == 2
+    if not valid then
+        gcs:send_text(MAV_SEVERITY.WARNING, string.format("ORCA%d: Modbus read response byte error", self.instance))
+        return false
+    end
+    self.in_flight.rx_data = ((response[4] << 8) & 0xFF00) | (response[5] & 0xFF)
+    return true
+end
+
 --==========================================
 -- Main Update Loop Functions
 --==========================================
@@ -463,6 +475,8 @@ function ORCAMotor:_transmit_command(cmd)
         payload = build_ext_tx_payload(cmd.mode, cmd.data, cmd.addr)
     elseif cmd.fn == MODBUS_FN_CODE.WRITE_SINGLE_REG or cmd.fn == MODBUS_FN_CODE.WRITE_MULTI_REG then
         payload = build_write_tx_payload(cmd.fn, cmd.reg, cmd.data)
+    elseif cmd.fn == MODBUS_FN_CODE.READ_SINGLE_REG then
+        payload = build_write_tx_payload(MODBUS_FN_CODE.WRITE_SINGLE_REG, cmd.reg, 0x0001) -- Can reuse the single write payload (data = num regs)
     end
     build_modbus_tx_frame(cmd.fn, payload)
     local payload_string = string.char(table.unpack(payload))
@@ -496,6 +510,9 @@ function ORCAMotor:_check_response()
         self:_update_cmd_status(ORCAMotor.STATUS.OK)
     elseif self.in_flight.fn == MODBUS_FN_CODE.WRITE_SINGLE_REG or self.in_flight.fn == MODBUS_FN_CODE.WRITE_MULTI_REG then
         local status = self:_verify_modbus_write_response(response) and ORCAMotor.STATUS.OK or ORCAMotor.STATUS.ERROR
+        self:_update_cmd_status(status)
+    elseif self.in_flight.fn == MODBUS_FN_CODE.READ_SINGLE_REG then
+        local status = self:_verify_modbus_read_response(response) and ORCAMotor.STATUS.OK or ORCAMotor.STATUS.ERROR
         self:_update_cmd_status(status)
     end
     return true
