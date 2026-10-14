@@ -753,4 +753,9 @@ function ORCAMotor:load_params()
     self.params_loaded = true
 end
 
+-- Clears latched and active errors
+function ORCAMotor:clear_motor_errors()
+    self:_queue_write_register(REGISTER.CTRL_REG_0, 0x0002, true)
+end
+
 return ORCAMotor
