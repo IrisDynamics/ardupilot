@@ -621,6 +621,7 @@ function ORCAMotor:_is_auto_zero_allowed()
     for _, val in ipairs(allowed) do
         if az_mode == val then return true end
     end
+    gcs:send_text(MAV_SEVERITY.WARNING, "Set AZ_MODE param to enable auto zeroing")
     return false
 end
 
@@ -670,7 +671,7 @@ function ORCAMotor:_set_mode(mode)
     self.target_mode = mode
 end
 
-function ORCAMotor:_auto_zero_run()
+function ORCAMotor:_set_auto_zero_mode()
     self.target_mode = ORCAMotor.MODE.AUTO_ZERO
     self.auto_zero_running  = true
     self.auto_zero_start_ms = millis()
@@ -744,15 +745,18 @@ function ORCAMotor:set_target_mode(target_mode)
         status = ORCAMotor.STATUS.QUEUED
     }
     if target_mode == ORCAMotor.MODE.AUTO_ZERO then
-        handle.status = self:_is_auto_zero_allowed() and ORCAMotor.STATUS.QUEUED or ORCAMotor.STATUS.ERROR
-        table.insert(self.queue, {
+        local allowed = self:_is_auto_zero_allowed()
+        handle.status = allowed and ORCAMotor.STATUS.QUEUED or ORCAMotor.STATUS.ERROR
+        if allowed then
+            table.insert(self.queue, {
             fn = MODBUS_FN_CODE.WRITE_SINGLE_REG,
             rx_len = MODBUS_RX_LEN.WRITE_SINGLE_REG,
             reg = REGISTER.CTRL_REG_3,
             data = ORCAMotor.MODE.AUTO_ZERO,
-            task = function() self:_auto_zero_run() end,
+            task = function() self:_set_auto_zero_mode() end,
             handle = handle
         })
+        end
     else
         local valid_mode = false
         for _, mode in pairs(ORCAMotor.MODE) do
