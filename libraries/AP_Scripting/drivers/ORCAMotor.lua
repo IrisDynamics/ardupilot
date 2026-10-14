@@ -39,7 +39,7 @@ local REGISTER = {
     AUTO_ZERO_SPEED_MMPS = 177,
     MOTOR_STATUS = 321
 };
-ORCAMotor.MODE = { SLEEP = 1, FORCE = 2, POSITION = 3 }
+ORCAMotor.MODE = { SLEEP = 1, FORCE = 2, POSITION = 3, AUTO_ZERO = 55 }
 ORCAMotor.UPDATE_RATE_MS = 100
 local ORCA_ERR_HANDLER = { AUTO = 0, RESET = 1, SLEEP = 3, EXTERNAL = 4, EXTERNAL_AND_SLEEP = 5 }
 local ORCA_ERR = {
@@ -521,19 +521,31 @@ end
 -- When no queued messages exist, build idle command based on current mode/position/force
 function ORCAMotor:_build_idle_cmd()
     local cmd = {
-        fn = MODBUS_FN_CODE.ORCA_EXT_MTR,
-        rx_len = MODBUS_RX_LEN.ORCA_EXT_MTR,
+        fn = nil,
+        rx_len = nil,
+        rx_data = nil,
         mode = nil,
         data = nil,
+        reg = nil
     }
     if self.target_mode == ORCAMotor.MODE.SLEEP then
+        cmd.fn = MODBUS_FN_CODE.ORCA_EXT_MTR
+        cmd.rx_len = MODBUS_RX_LEN.ORCA_EXT_MTR
         cmd.mode = ORCA_EXT_CMD_MODE.SLEEP
     elseif self.target_mode == ORCAMotor.MODE.POSITION then
+        cmd.fn = MODBUS_FN_CODE.ORCA_EXT_MTR
+        cmd.rx_len = MODBUS_RX_LEN.ORCA_EXT_MTR
         cmd.mode = ORCA_EXT_CMD_MODE.POSITION
         cmd.data = self.target_position
     elseif self.target_mode == ORCAMotor.MODE.FORCE then
+        cmd.fn = MODBUS_FN_CODE.ORCA_EXT_MTR
+        cmd.rx_len = MODBUS_RX_LEN.ORCA_EXT_MTR
         cmd.mode = ORCA_EXT_CMD_MODE.FORCE
         cmd.data = self.target_force
+    elseif self.target_mode - ORCAMotor.MODE.AUTO_ZERO then
+        cmd.fn = MODBUS_FN_CODE.READ_SINGLE_REG
+        cmd.rx_len = MODBUS_RX_LEN.READ_SINGLE_REG
+        cmd.reg = REGISTER.MOTOR_STATUS
     end
     return cmd
 end
@@ -597,6 +609,47 @@ function ORCAMotor:_update_cmd_status(status)
     end
 end
 
+function ORCAMotor:_is_auto_zero_allowed()
+    if not self.params_loaded then
+        gcs:send_text(MAV_SEVERITY.WARNING, "APPLY params to enable zeroing")
+        return false
+    end
+    local az_mode = self.params.autozero_mode:get()
+    local allowed = {2,3,4}
+
+    for _, val in ipairs(allowed) do
+        if az_mode == val then return true end
+    end
+    return false
+end
+
+function ORCAMotor:_check_auto_zero()
+    if not self.auto_zero_running then return end
+
+    if millis() - self.auto_zero_start_ms > self.auto_zero_timeout_ms then
+        gcs:send_text(MAV_SEVERITY.ERROR, string.format("ORCA%d: Auto zero timeout", self.instance))
+        self.auto_zero_running = false
+        self:_set_mode(ORCAMotor.MODE.SLEEP)
+        return
+    end
+
+    if not self.in_flight.rx_data then return end
+    
+    local az_status = self.in_flight.rx_data & (0x01 << 1)-- Bit mask (1=running, 0=done)
+
+    if az_status == 0 then
+        gcs:send_text(MAV_SEVERITY.INFO, string.format("ORCA%d: Auto zero complete", self.instance))
+        self.auto_zero_running = false
+        if self.params_loaded  and self.params.autozero_exit_mode:get() > 0 then
+            self:set_target_mode(self.params.autozero_exit_mode:get())
+        else
+            self:_set_mode(ORCAMotor.MODE.SLEEP)
+        end
+    end
+    -- Auto zero still running
+end
+
+
 --==========================================
 -- Private Setters
 --==========================================
@@ -614,6 +667,12 @@ end
 
 function ORCAMotor:_set_mode(mode)
     self.target_mode = mode
+end
+
+function ORCAMotor:_auto_zero_run()
+    self.target_mode = ORCAMotor.MODE.AUTO_ZERO
+    self.auto_zero_running  = true
+    self.auto_zero_start_ms = millis()
 end
 
 --==========================================
@@ -670,6 +729,10 @@ function ORCAMotor.new(port_num, instance_num)
     }
     self.last_err = 0
     self.last_err_log_ms = 0
+
+    self.auto_zero_timeout_ms = 3000
+    self.auto_zero_running = false
+    self.auto_zero_start_ms = 0
     return self
 end
 
@@ -679,13 +742,36 @@ function ORCAMotor:set_target_mode(target_mode)
         id = millis(),
         status = ORCAMotor.STATUS.QUEUED
     }
-    table.insert(self.queue, {
-        fn = MODBUS_FN_CODE.ORCA_EXT_MTR,
-        rx_len = MODBUS_RX_LEN.ORCA_EXT_MTR,
-        mode = target_mode,
-        task = function() self:_set_mode(target_mode) end,
-        handle = handle
-    })
+    if target_mode == ORCAMotor.MODE.AUTO_ZERO then
+        handle.status = self:_is_auto_zero_allowed() and ORCAMotor.STATUS.QUEUED or ORCAMotor.STATUS.ERROR
+        table.insert(self.queue, {
+            fn = MODBUS_FN_CODE.WRITE_SINGLE_REG,
+            rx_len = MODBUS_RX_LEN.WRITE_SINGLE_REG,
+            reg = REGISTER.CTRL_REG_3,
+            data = ORCAMotor.MODE.AUTO_ZERO,
+            task = function() self:_auto_zero_run() end,
+            handle = handle
+        })
+    else
+        local valid_mode = false
+        for _, mode in pairs(ORCAMotor.MODE) do
+            if target_mode == mode then
+                valid_mode = true
+            end
+        end
+        if valid_mode then
+            table.insert(self.queue, {
+                fn = MODBUS_FN_CODE.ORCA_EXT_MTR,
+                rx_len = MODBUS_RX_LEN.ORCA_EXT_MTR,
+                mode = target_mode,
+                task = function() self:_set_mode(target_mode) end,
+                handle = handle
+            })
+        else
+            gcs:send_text(MAV_SEVERITY.ERROR, string.format("ORCA%d: Invalid mode", self.instance))
+            handle.status = ORCAMotor.STATUS.ERROR
+        end
+    end
     return handle
 end
 
@@ -734,6 +820,7 @@ function ORCAMotor:update()
 
     if self.in_flight then
         if self:_check_response() then
+            self:_check_auto_zero()
             self.in_flight = nil
         elseif (millis() - self.tx_time) > MODBUS_TIMEOUT_MS then
             gcs:send_text(MAV_SEVERITY.WARNING, string.format("ORCA%d: Command timeout", self.instance))
@@ -782,6 +869,16 @@ end
 -- Clears latched and active errors
 function ORCAMotor:clear_motor_errors()
     self:_queue_write_register(REGISTER.CTRL_REG_0, 0x0002, true)
+
+-- Set the timeout for the auto zero routine
+function ORCAMotor:set_auto_zero_timeout(ms)
+    self.auto_zero_timeout_ms = ms
 end
+
+-- Check if auto zero currently running
+function ORCAMotor:get_auto_zero_running()
+    return self.auto_zero_running
+end
+
 
 return ORCAMotor
