@@ -555,7 +555,14 @@ end
 
 -- Parse the error table populated by the idle command
 function ORCAMotor:_parse_reported_errors()
-    if self.state.errors == 0 then return end -- Early return if all clear
+    if self.state.errors == 0 then 
+        if self.last_err ~= nil then -- Active error was cleared in the motor
+            gcs:send_text(MAV_SEVERITY.INFO, string.format("ORCA%d: Errors cleared", self.instance))
+        end
+        self.last_err = nil
+        return
+    end -- Early return if all clear
+
     for err_key, err in pairs(ORCA_ERR) do
         if self.state.errors & err.mask == err.mask then
             self.last_err = err.mask
