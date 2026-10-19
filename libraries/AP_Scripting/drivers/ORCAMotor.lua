@@ -66,7 +66,7 @@ end
 
 function ORCAMotor:_parameter_init()
     self.param_prefix = string.format("ORCA%d_", self.instance)
-    assert(param:add_table(PARAM_TABLE_KEY, self.param_prefix, 15),
+    assert(param:add_table(PARAM_TABLE_KEY, self.param_prefix, 16),
         string.format("could not add param table %s", self.param_prefix))
 
     --[[
@@ -209,6 +209,15 @@ function ORCAMotor:_parameter_init()
     // @User: Standard
     ]]
     self.params["apply"] = self:bind_add_param("APPLY", 15, 0)
+
+    --[[
+    // @Param: ZERO_POS
+    // @DisplayName: Zero current position
+    // @Description: This parameter triggers the motor to zero its current position
+    // @Values: 0:None,1:Apply
+    // @User: Standard
+    ]]
+    self.params["zero_pos"] = self:bind_add_param("ZERO_POS", 16, 0)
     self.params_loaded = true
 end
 
@@ -818,12 +827,20 @@ end
 -- Update function must be called in user script
 function ORCAMotor:update()
     if self.params.enable:get() == 0 then return end
+
+    -- Parameter triggered routines
     if self.params.apply:get() > 0 then
         gcs:send_text(MAV_SEVERITY.INFO, string.format("ORCA%d: Applying params to motor", self.instance))
         self:load_params()
         self.params.apply:set_and_save(0)
     end
+    if self.params.zero_pos:get() > 0 then
+        gcs:send_text(MAV_SEVERITY.INFO, string.format("ORCA%d: Zeroing current position", self.instance))
+        self:zero_current_position()
+        self.params.zero_pos:set_and_save(0)
+    end
 
+    -- Response handling
     if self.in_flight then
         if self:_check_response() then
             self:_check_auto_zero()
@@ -837,6 +854,7 @@ function ORCAMotor:update()
         end
     end
 
+    -- Transmission handling
     local cmd = {}
     if #self.queue > 0 and not self.in_flight then
         cmd = table.remove(self.queue, 1)
