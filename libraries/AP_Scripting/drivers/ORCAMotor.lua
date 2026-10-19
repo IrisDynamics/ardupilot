@@ -442,7 +442,6 @@ function ORCAMotor:_verify_modbus_write_response(response)
     end
     if not valid then
         gcs:send_text(MAV_SEVERITY.WARNING, string.format("ORCA%d: Modbus write response mismatch", self.instance))
-        self:_update_cmd_status(ORCAMotor.STATUS.ERROR)
         return false
     end
     return true
