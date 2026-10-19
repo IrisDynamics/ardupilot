@@ -539,7 +539,9 @@ function ORCAMotor:_handle_errror(err_key, err)
         self:_log_error(err_key, err, "automatic")
     elseif err.resolve == ORCA_ERR_HANDLER.RESET then
         self:_log_error(err_key, err, "factory resetting...")
-        self:_queue_write_register(REGISTER.CTRL_REG_0, 0x01, true)
+        self:_queue_write_register(REGISTER.CTRL_REG_4, 0xFE) -- Reset tuning values
+        self:_queue_write_register(REGISTER.CTRL_REG_2, 0x3E0) -- Save to flash
+        self:_queue_write_register(REGISTER.CTRL_REG_0, 0x01) -- Reset motor
     elseif err.resolve == ORCA_ERR_HANDLER.SLEEP then
         self:_log_error(err_key, err, "sleeping...")
         self:set_target_mode(ORCAMotor.MODE.SLEEP)
