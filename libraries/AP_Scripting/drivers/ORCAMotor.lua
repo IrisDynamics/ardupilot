@@ -381,7 +381,7 @@ local function build_write_tx_payload(fn, reg, data)
         payload[2] = reg & 0xFF
         payload[3] = (data >> 8) & 0xFF
         payload[4] = data & 0xFF
-    else
+    elseif fn == MODBUS_FN_CODE.WRITE_MULTI_REG then
         for _, val in ipairs(data) do
             table.insert(payload, (val >> 8) & 0xFF)
             table.insert(payload, val & 0xFF)
