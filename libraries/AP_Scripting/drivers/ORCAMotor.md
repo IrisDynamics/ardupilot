@@ -243,6 +243,26 @@ Updated automatically following every successful `ORCA_EXT_MTR` command response
 
 ---
 
+## Internal Architecture & Helper Functions
+
+The `ORCAMotor.lua` driver is structured around a non-blocking queue system that handles Modbus RTU communications over serial within ArduPilot's scripting environment.
+
+### Communication & State Machine
+
+* **Queue-Driven Messaging:** Communication is managed through an `in_flight` state machine and a `queue` array. Commands queued by public API methods wait until active transactions are acknowledged or time out ($1000\text{ ms}$). The queue can be jumped if `true` is passed as the argument for `front` of `_queue_write_register()`
+* **Idle Telemetry/Control:** When no user commands are pending in the queue, `_build_idle_cmd()` constructs periodic control/telemetry requests (using the custom `ORCA_EXT_MTR` command or single-register reads) to continuously update state data.
+* **Frame Validation:** Inbound Modbus frames are verified using `verify_modbus_rx_header()`, which calculates standard Modbus CRCs using `generate_crc()` alongside lookup tables (`crc_hi_lookup`, `crc_lo_lookup`).
+
+### Low-Level Serialization & Helpers
+
+* **Binary Parsing (`parse`):** Bitwise binary parsing functions (`parse.u16`, `parse.i16`, `parse.u32`, `parse.i32`) convert raw response byte arrays into signed and unsigned 16-bit and 32-bit integers (using two's complement where appropriate).
+* **Schema Mapping (`ext_motor_schema`):** Incoming bytes from the 42-byte Extended Motor Command response are mapped against a schema table, populating properties inside `motor.state` (such as force, position, temperature, and status bitmasks).
+* **Payload Builders:** Internal functions `build_ext_tx_payload()` and `build_write_tx_payload()` serialize targets, modes, and register addresses into byte arrays before adding headers and CRCs.
+
+Custom configuration functions can be made by simply using `_queue_write_register()` and the ORCA Memory Map. 
+
+---
+
 ## Error Handling & Resolution
 
 Errors reported in `self.state.errors` are parsed against `ORCA_ERR` masks and handled according to assigned resolution protocols:
