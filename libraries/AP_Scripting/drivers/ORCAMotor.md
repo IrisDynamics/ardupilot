@@ -265,7 +265,7 @@ If the motor error persists, it will log to the GCS every 10 seconds until the c
 
 ## Limitations
 
-* **SITL & WSL serial frame dropout:** When testing the ORCA motor with SITL and WSL, there is an occasional random frame that fails to be received by the motor (1 in ~5000). If not in sleep mode, this causes a motor timeout error, preventing actuation and requiring a manual swap to SLEEP mode to clear. This issue was only found to occur in Lua with Ardupilot, and a fix will be reported if found.
+* **SITL & WSL serial frame dropout:** When testing the ORCA motor with SITL and WSL, there is an occasional random frame that fails to be received by the motor (1 in ~5000). If not in SLEEP mode, this causes a motor timeout error, preventing actuation and requiring a manual swap to SLEEP mode to clear. This issue _does not_ occur when testing with an actual flight controller.
 * **Feature Parity versus orcaSDK:** This driver is not as extensive as the C++, Python, and Matlab drivers we provide for our motors, primarily due to the constrained resources of flight controllers. As this driver adoption increases, we will identifify what features to make available that would benefit a majority of ArduPilot users.
 
 ---
@@ -274,43 +274,65 @@ If the motor error persists, it will log to the GCS every 10 seconds until the c
 ### Steps:
 1. Enabling scripting with `SCR_ENABLE 1`
 2. Set the connected serial parameters `SERIALx_PROTOCOL 28` and `SERIALx_BAUD 19` where `x` is the connected pin number
-3. Copy the **ORCAMotor.lua** file into `scripts/modules/`
-4. Copy your user script into `scripts/`
+3. Copy the **ORCAMotor.lua** file into `APM/scripts/modules/`
+4. Copy your user script into `APM/scripts/`
 5. If desired, load an ORCA parameter file with `param load <file>` and `reboot`
 
 ### Sample Script
 ```lua
-local ORCA = require("ORCAMotor")
+-- ORCAMotor Pitch Control Script
+local ORCAMotor = require("ORCAMotor")
 
-local MIN_ALT_M = 10.0        -- Minimum altitude threshold (meters)
-local MAX_ALT_M = 50.0        -- Maximum altitude threshold (meters)
-local TARGET_FORCE_MN = 15000 -- Target force in millinewtons (15 N)
-local TARGET_POS_UM = 120000  -- Target position in micrometers (12 cm)
+local PORT_NUM = 0    
+local INSTANCE_NUM = 1
 
-local motor = ORCA.new(0, 1) -- Serial instance 0, driver instance 1
+-- Target Position Limits (in micrometers)
+local MIN_POSITION_UM = 0
+local MAX_POSITION_UM = 200000
+
+-- Control Tuning
+local PITCH_DEADZONE_DEG = 3     -- Ignore pitch changes smaller than this
+local STEP_SIZE_UM = 3000          -- Position increment/decrement per loop step
+
+-- Initialize Motor Instance
+local motor = ORCAMotor.new(PORT_NUM, INSTANCE_NUM)
+
 motor:clear_motor_errors()
-motor:load_params() -- Assumes you've already got your params saved from previous load
+motor:load_params()
+motor:set_auto_zero_timeout(5000)
+motor:set_target_mode(ORCAMotor.MODE.AUTO_ZERO)
 
 function update()
-    -- Must call update every iteration
+    -- 1. Ensure driver loop updates continuously
     motor:update()
 
-    -- Get current vehicle relative altitude above home
-    local home_loc = ahrs:get_home()
-    local curr_loc = ahrs:get_location()
+    -- 2. Fetch vehicle pitch angle from AHRS (returned in radians, convert to degrees)
+    local pitch_deg = math.deg(ahrs:get_pitch_rad())
 
-    if home_loc and curr_loc then
-        local alt_above_home = curr_loc:alt() * 0.01 - home_loc:alt() * 0.01 -- Convert cm to meters
+    -- 3. Retrieve current measured motor position from state table
+    local current_position_um = motor.state.position_um
+    local target_position_um = motor.target_position
 
-        -- Force and position control toggling based on altitude band
-        if alt_above_home >= MIN_ALT_M and alt_above_home <= MAX_ALT_M then
-            motor:set_target_force_mN(TARGET_FORCE_MN)
-        else
-            motor:set_target_position_um(TARGET_POS_UM)
-        end
+    -- 4. Calculate new target based on vehicle pitch angle
+    --    Nose down (pitch < 0): Increase target position
+    --    Nose up (pitch > 0): Decrease target position
+    local new_target_um = target_position_um
+
+    if pitch_deg < -PITCH_DEADZONE_DEG then
+        new_target_um = target_position_um + STEP_SIZE_UM
+    elseif pitch_deg > PITCH_DEADZONE_DEG then
+        new_target_um = target_position_um - STEP_SIZE_UM
     end
 
-    return update, ORCA.UPDATE_RATE_MS
+    -- 5. Apply limits (Min: 0 um, Max: MAX_POSITION_UM)
+    new_target_um = math.max(MIN_POSITION_UM, math.min(MAX_POSITION_UM, new_target_um))
+
+    -- 6. Dispatch command if target position changes
+    if new_target_um ~= target_position_um then
+        motor:set_target_position_um(new_target_um)
+    end
+
+    return update, 50
 end
 
 return update()
@@ -338,4 +360,4 @@ ORCA1_APPLY 1
 ```
 
 ### Extending the Feature Set
-As specified by the limitations, this driver does not provide complete customisation or functionality of the ORCA motor. Our product supports haptics, kinematic motions, PWM controllers, Ethernet-IP, Analog/Digital signals, and more—Development with ArduPilot will be an ongoing task. If you would like to add certain features, develop the driver using the ORCA reference manual and ORCA Modbus RTU document, or contact us for support.
+As specified by the limitations, this driver does not provide complete customisation or functionality of the ORCA motor. Our product supports haptics, kinematic motions, PWM controllers, Ethernet-IP, analog/digital controllers, and more. Development with ArduPilot will be an ongoing task. If you would like to add certain features, develop the driver using the ORCA reference manual and ORCA Modbus RTU document, or contact us for support.
