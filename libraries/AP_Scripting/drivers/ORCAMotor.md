@@ -32,20 +32,22 @@ The `ORCAMotor.lua` library is an ArduPilot Lua script driver designed to interf
 We recommend getting familiar with your motor and testing it with our native IrisControls software prior to testing with Lua. Visit our website to access the ORCA motor reference manual.
 - ORCA motor
 - Power supply or battery (_Note_: Power specifications can be found in our [Orca Series](https://irisdynamics.com/products/orca-series) lineup under _View All Specifications_)
-- RS422 to UART converter
-- RJ45 breakout connector
+- RS422 to UART converter (Tested with a generic one)
+- RJ45 female breakout connector
 
 ### Pin Configuration
-| Pin | Signal |
-| :--- | :--- |
-| 1 | RX<sub>2+</sub> |
-| 2 | RX<sub>2-</sub> |
-| 3 | TX<sub>2+</sub> |
-| 6 | TX<sub>2-</sub> |
-| 7 | +5V |
-| 8 | GND |
+| Pin Number | RJ45 Pin Signal | Plug Into | AP Pin Signal | Plug Into |
+| :--- | :--- | :--- | :--- | :--- |
+| 1 | RX<sub>2+</sub> | T+</sub> | VCC | VCC |
+| 2 | RX<sub>2-</sub> | T-</sub> | TX | RX |
+| 3 | TX<sub>2+</sub> | R+</sub> | RX | TX |
+| 4 | — | — | CTS | — |
+| 5 | — | — | RTS | — |
+| 6 | TX<sub>2-</sub> | R-</sub> | GND | GND |
+| 7 | +5V | +5V | — | — |
+| 8 | GND | GND | — | — |
 
-_Note_: When the motor is connected to an appropriate power source and turned on, it will supply 5V to pin 7. However, if the source is disabled, 5V will need to be supplied to pin 7 if motor configuration is desired. This could be useful if the motor is connected to an external battery or switched power supply that you may wish to have off prior to actuating the motor. Additionally, GND is not required between the RS422-UART converter and the RJ45 breakout connector, as Modbus RS422 is fully differential. Double check the schematic and pin connections on your RS422 to UART converter, as TX and RX are easy to mix up.
+_Note_: When the motor is connected to an appropriate power source and turned on, it will supply 5V to pin 7. However, if the source is disabled, 5V will need to be supplied to pin 7 if motor configuration is desired. This could be useful if the motor is connected to an external battery or switched power supply that you may wish to have off prior to actuating the motor. Additionally, GND is not a requirement between the RS422-UART converter and the RJ45 breakout connector, as Modbus RS422 is fully differential. Double check the schematic and pin connections on your RS422 to UART converter, as TX and RX connections are easy to mix up.
 
 
 ## Overview & Architecture
