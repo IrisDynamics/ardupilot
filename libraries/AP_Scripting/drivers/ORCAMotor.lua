@@ -24,6 +24,7 @@ local REGISTER = {
     CTRL_REG_2 = 2,
     CTRL_REG_3 = 3,
     CTRL_REG_4 = 4,
+    KIN_SW_TRIG = 9,
     USER_MAX_FORCE = 140,
     USER_MAX_FORCE_H = 141,
     PC_PGAIN = 133,
@@ -37,9 +38,11 @@ local REGISTER = {
     AUTO_ZERO_FORCE_N = 172,
     AUTO_ZERO_EXIT_MODE = 173,
     AUTO_ZERO_SPEED_MMPS = 177,
-    MOTOR_STATUS = 321
+    KINEMATIC_STATUS = 319,
+    MOTOR_STATUS = 321,
+    KIN_HOME_ID = 972
 };
-ORCAMotor.MODE = { SLEEP = 1, FORCE = 2, POSITION = 3, AUTO_ZERO = 55 }
+ORCAMotor.MODE = { SLEEP = 1, FORCE = 2, POSITION = 3, KINEMATIC = 5, AUTO_ZERO = 55 }
 ORCAMotor.UPDATE_RATE_MS = 100
 local ORCA_ERR_HANDLER = { AUTO = 0, RESET = 1, SLEEP = 3, EXTERNAL = 4, EXTERNAL_AND_SLEEP = 5 }
 local ORCA_ERR = {
@@ -54,6 +57,10 @@ local ORCA_ERR = {
     AUTO_ZERO_FAIL = { mask = 8192, severity = MAV_SEVERITY.WARNING, resolve = ORCA_ERR_HANDLER.SLEEP, message = "check auto zero settings" }
 }
 ORCAMotor.STATUS = { QUEUED = 0, PROCESSING = 1, OK = 2, ERROR = 3 }
+ORCAMotor.KIN_SHAPE = { MIN_POWER = 0x00, MAX_SMOOTHING = 0x01 }
+
+local kin_reg_start = 780
+local kin_reg_offset = 6
 
 --==========================================
 -- Parameter Setup
@@ -553,6 +560,10 @@ function ORCAMotor:_build_idle_cmd()
         cmd.rx_len = MODBUS_RX_LEN.ORCA_EXT_MTR
         cmd.mode = ORCA_EXT_CMD_MODE.FORCE
         cmd.data = self.target_force
+    elseif self.target_mode == ORCAMotor.MODE.KINEMATIC then
+        cmd.fn = MODBUS_FN_CODE.READ_SINGLE_REG
+        cmd.rx_len = MODBUS_RX_LEN.READ_SINGLE_REG
+        cmd.reg = REGISTER.KINEMATIC_STATUS
     end
     return cmd
 end
@@ -654,6 +665,32 @@ function ORCAMotor:_check_auto_zero()
     -- Auto zero still running
 end
 
+local function _get_kin_frame(motion)
+    local reg = motion.id * kin_reg_offset + kin_reg_start
+    local motion_options = (motion.auto_next == true) and 0xFF01 or 0xFF00
+    motion_options = motion_options | (motion.shape << 1)
+    motion_options = motion_options | (motion.next_id << 3)
+
+    local payload = {
+        motion.position & 0xFFFF,
+        (motion.position >> 16) & 0xFFFF,
+        motion.time & 0xFFFF,
+        (motion.time >> 16) & 0xFFFF,
+        motion.delay & 0xFFFF,
+        motion_options & 0xFFFF
+    }
+
+    return reg, payload
+end
+
+function ORCAMotor:_check_kin_status()
+    if self.target_mode ~= ORCAMotor.MODE.KINEMATIC or not self.in_flight.rx_data then return end
+
+    self.kin_motion_status.running = ((self.in_flight.rx_data & 0x8000) > 0) and true or false
+    self.kin_motion_status.id = self.in_flight.rx_data & 0x7FFF
+
+end
+
 
 --==========================================
 -- Private Setters
@@ -736,6 +773,11 @@ function ORCAMotor.new(port_num, instance_num)
 
     self.auto_zero_timeout_ms = 3000
     self.auto_zero_start_ms = 0
+    self.kin_motion_status = {
+        running = false,
+        id = nil
+    }
+    self:set_target_mode(ORCAMotor.MODE.SLEEP) -- Synchronise the motor
     return self
 end
 
@@ -758,6 +800,15 @@ function ORCAMotor:set_target_mode(target_mode)
             handle = handle
         })
         end
+    elseif target_mode == ORCAMotor.MODE.KINEMATIC then
+        table.insert(self.queue, {
+            fn = MODBUS_FN_CODE.WRITE_SINGLE_REG,
+            rx_len = MODBUS_RX_LEN.WRITE_SINGLE_REG,
+            reg = REGISTER.CTRL_REG_3,
+            data = ORCAMotor.MODE.KINEMATIC,
+            task = function() self:_set_mode(target_mode) end,
+            handle = handle
+        })
     else
         local valid_mode = false
         for _, mode in pairs(ORCAMotor.MODE) do
@@ -835,6 +886,7 @@ function ORCAMotor:update()
     if self.in_flight then
         if self:_check_response() then
             self:_check_auto_zero()
+            self:_check_kin_status()
             self.in_flight = nil
         elseif (millis() - self.tx_time) > MODBUS_TIMEOUT_MS then
             gcs:send_text(MAV_SEVERITY.WARNING, string.format("ORCA%d: Command timeout", self.instance))
@@ -916,6 +968,66 @@ function ORCAMotor:zero_current_position()
         status = ORCAMotor.STATUS.QUEUED
     }
     self:_queue_write_register(REGISTER.CTRL_REG_0, 0x0004, true, handle)
+    return handle
+end
+
+function ORCAMotor:set_kin_motion(id, position, time, delay, shape, auto_next, next_id)
+    local handle = {
+        id = millis(),
+        status = ORCAMotor.STATUS.QUEUED
+    }
+
+    if id < 0 or id > 31 then
+        gcs:send_text(MAV_SEVERITY.WARNING, string.format("ORCA%d: Invalid motion ID", self.instance))
+        handle.status = ORCAMotor.STATUS.ERROR
+    elseif not position then
+        gcs:send_text(MAV_SEVERITY.WARNING, string.format("ORCA%d: Invalid motion position", self.instance))
+        handle.status = ORCAMotor.STATUS.ERROR
+    else
+        local motion = {
+            id = id,
+            position = position,
+            time = time >= 0 and time or 0,
+            delay = delay >= 0 and delay or 0,
+            shape = (shape >= 0 and shape < 2) and shape or ORCAMotor.KIN_SHAPE.MIN_POWER,
+            auto_next = type(auto_next) == "boolean" and auto_next or false,
+            next_id = (next_id >= 0 and next_id < 32) and next_id  or 0,
+        }
+        local reg, payload = _get_kin_frame(motion)
+        self:_queue_write_register(reg, payload, false, handle)
+    end
+
+    return handle
+end
+
+function ORCAMotor:set_kin_home(id)
+    local handle = {
+        id = millis(),
+        status = ORCAMotor.STATUS.QUEUED
+    }
+    if id < 0 or id > 31 then
+        gcs:send_text(MAV_SEVERITY.WARNING, string.format("ORCA%d: Invalid motion ID", self.instance))
+        handle.status = ORCAMotor.STATUS.ERROR
+    else
+        self:_queue_write_register(REGISTER.KIN_HOME_ID, id, false, handle)
+    end
+
+    return handle
+end
+
+function ORCAMotor:trigger_kinematic_motion(id)
+    local handle = {
+        id = millis(),
+        status = ORCAMotor.STATUS.QUEUED
+    }
+    if id < 0 or id > 31 then
+        gcs:send_text(MAV_SEVERITY.WARNING, string.format("ORCA%d: Invalid motion ID", self.instance))
+        handle.status = ORCAMotor.STATUS.ERROR
+    else
+        self:set_target_mode(ORCAMotor.MODE.KINEMATIC)
+        self:_queue_write_register(REGISTER.KIN_SW_TRIG, id)
+    end
+
     return handle
 end
 
