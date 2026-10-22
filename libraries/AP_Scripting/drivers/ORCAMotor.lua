@@ -568,34 +568,26 @@ end
 
 -- When no queued messages exist, build idle command based on current mode/position/force
 function ORCAMotor:_build_idle_cmd()
-    local cmd = {
-        fn = nil,
-        rx_len = nil,
-        rx_data = nil,
-        mode = nil,
-        data = nil,
-        reg = nil
-    }
     if self.target_mode == ORCAMotor.MODE.SLEEP then
-        cmd.fn = MODBUS_FN_CODE.ORCA_EXT_MTR
-        cmd.rx_len = MODBUS_RX_LEN.ORCA_EXT_MTR
-        cmd.mode = ORCA_EXT_CMD_MODE.SLEEP
+        self.cmd.fn = MODBUS_FN_CODE.ORCA_EXT_MTR
+        self.cmd.rx_len = MODBUS_RX_LEN.ORCA_EXT_MTR
+        self.cmd.mode = ORCA_EXT_CMD_MODE.SLEEP
     elseif self.target_mode == ORCAMotor.MODE.POSITION then
-        cmd.fn = MODBUS_FN_CODE.ORCA_EXT_MTR
-        cmd.rx_len = MODBUS_RX_LEN.ORCA_EXT_MTR
-        cmd.mode = ORCA_EXT_CMD_MODE.POSITION
-        cmd.data = self.target_position
+        self.cmd.fn = MODBUS_FN_CODE.ORCA_EXT_MTR
+        self.cmd.rx_len = MODBUS_RX_LEN.ORCA_EXT_MTR
+        self.cmd.mode = ORCA_EXT_CMD_MODE.POSITION
+        self.cmd.data = self.target_position
     elseif self.target_mode == ORCAMotor.MODE.FORCE then
-        cmd.fn = MODBUS_FN_CODE.ORCA_EXT_MTR
-        cmd.rx_len = MODBUS_RX_LEN.ORCA_EXT_MTR
-        cmd.mode = ORCA_EXT_CMD_MODE.FORCE
-        cmd.data = self.target_force
+        self.cmd.fn = MODBUS_FN_CODE.ORCA_EXT_MTR
+        self.cmd.rx_len = MODBUS_RX_LEN.ORCA_EXT_MTR
+        self.cmd.mode = ORCA_EXT_CMD_MODE.FORCE
+        self.cmd.data = self.target_force
     elseif self.target_mode == ORCAMotor.MODE.KINEMATIC then
-        cmd.fn = MODBUS_FN_CODE.ORCA_MTR_RD
-        cmd.rx_len = MODBUS_RX_LEN.ORCA_MTR_RD
-        cmd.reg = REGISTER.KINEMATIC_STATUS
+        self.cmd.fn = MODBUS_FN_CODE.READ_SINGLE_REG
+        self.cmd.rx_len = MODBUS_RX_LEN.READ_SINGLE_REG
+        self.cmd.reg = REGISTER.KINEMATIC_STATUS
     end
-    return cmd
+    return self.cmd
 end
 
 --==========================================
@@ -775,6 +767,14 @@ function ORCAMotor.new(port_num, instance_num)
     self.in_flight = nil -- Current transmission
     self.tx_time = 0
     self.last_rx_byte_time = 0
+    self.cmd = {
+        fn = nil,
+        rx_len = nil,
+        rx_data = nil,
+        mode = nil,
+        data = nil,
+        reg = nil
+    }
 
     -- Motor state information
     self.target_position = 0
@@ -928,20 +928,19 @@ function ORCAMotor:update()
     end
 
     -- Transmission handling
-    local cmd = {}
     if self.target_mode == ORCAMotor.MODE.AUTO_ZERO then -- Auto Zero needs to be uninteruptible
-        cmd.fn = MODBUS_FN_CODE.READ_SINGLE_REG
-        cmd.rx_len = MODBUS_RX_LEN.READ_SINGLE_REG
-        cmd.reg = REGISTER.MOTOR_STATUS
+        self.cmd.fn = MODBUS_FN_CODE.READ_SINGLE_REG
+        self.cmd.rx_len = MODBUS_RX_LEN.READ_SINGLE_REG
+        self.cmd.reg = REGISTER.MOTOR_STATUS
     elseif #self.queue > 0 then
-        cmd = table.remove(self.queue, 1)
-        if cmd.task then cmd.task() end -- Run a function before transmission
+        self.cmd = table.remove(self.queue, 1)
+        if self.cmd.task then self.cmd.task() end -- Run a function before transmission
     else
-        cmd = self:_build_idle_cmd()
+        self:_build_idle_cmd()
     end
-    self.in_flight = cmd
+    self.in_flight = self.cmd
     self:_update_cmd_status(ORCAMotor.STATUS.PROCESSING)
-    self:_transmit_command(cmd)
+    self:_transmit_command(self.cmd)
     self.tx_time = millis()
 end
 
