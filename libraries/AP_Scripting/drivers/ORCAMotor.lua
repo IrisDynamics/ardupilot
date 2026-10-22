@@ -553,10 +553,6 @@ function ORCAMotor:_build_idle_cmd()
         cmd.rx_len = MODBUS_RX_LEN.ORCA_EXT_MTR
         cmd.mode = ORCA_EXT_CMD_MODE.FORCE
         cmd.data = self.target_force
-    elseif self.target_mode - ORCAMotor.MODE.AUTO_ZERO then
-        cmd.fn = MODBUS_FN_CODE.READ_SINGLE_REG
-        cmd.rx_len = MODBUS_RX_LEN.READ_SINGLE_REG
-        cmd.reg = REGISTER.MOTOR_STATUS
     end
     return cmd
 end
@@ -635,11 +631,10 @@ function ORCAMotor:_is_auto_zero_allowed()
 end
 
 function ORCAMotor:_check_auto_zero()
-    if not self.auto_zero_running then return end
+    if self.target_mode ~= ORCAMotor.MODE.AUTO_ZERO then return end
 
     if millis() - self.auto_zero_start_ms > self.auto_zero_timeout_ms then
         gcs:send_text(MAV_SEVERITY.ERROR, string.format("ORCA%d: Auto zero timeout", self.instance))
-        self.auto_zero_running = false
         self:_set_mode(ORCAMotor.MODE.SLEEP)
         return
     end
@@ -650,7 +645,6 @@ function ORCAMotor:_check_auto_zero()
 
     if az_status == 0 then
         gcs:send_text(MAV_SEVERITY.INFO, string.format("ORCA%d: Auto zero complete", self.instance))
-        self.auto_zero_running = false
         if self.params_loaded  and self.params.autozero_exit_mode:get() > 0 then
             self:set_target_mode(self.params.autozero_exit_mode:get())
         else
@@ -682,7 +676,6 @@ end
 
 function ORCAMotor:_set_auto_zero_mode()
     self.target_mode = ORCAMotor.MODE.AUTO_ZERO
-    self.auto_zero_running  = true
     self.auto_zero_start_ms = millis()
 end
 
@@ -742,7 +735,6 @@ function ORCAMotor.new(port_num, instance_num)
     self.last_err_log_ms = 0
 
     self.auto_zero_timeout_ms = 3000
-    self.auto_zero_running = false
     self.auto_zero_start_ms = 0
     return self
 end
@@ -855,10 +847,14 @@ function ORCAMotor:update()
 
     -- Transmission handling
     local cmd = {}
-    if #self.queue > 0 and not self.in_flight then
+    if self.target_mode == ORCAMotor.MODE.AUTO_ZERO then -- Auto Zero needs to be uninteruptible
+        cmd.fn = MODBUS_FN_CODE.READ_SINGLE_REG
+        cmd.rx_len = MODBUS_RX_LEN.READ_SINGLE_REG
+        cmd.reg = REGISTER.MOTOR_STATUS
+    elseif #self.queue > 0 then
         cmd = table.remove(self.queue, 1)
         if cmd.task then cmd.task() end -- Run a function before transmission
-    elseif not self.in_flight then
+    else
         cmd = self:_build_idle_cmd()
     end
     self.in_flight = cmd
@@ -906,7 +902,7 @@ end
 
 -- Check if auto zero currently running
 function ORCAMotor:get_auto_zero_running()
-    return self.auto_zero_running
+    return self.target_mode == ORCAMotor.MODE.AUTO_ZERO
 end
 
 -- Set current position to zero
