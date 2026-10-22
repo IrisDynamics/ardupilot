@@ -532,26 +532,26 @@ function ORCAMotor:_check_response()
         return false
     end
 
-    local response = {}
+    self.response = {}
     for i = 1, self.in_flight.rx_len do
-        response[i] = self.uart:read()
+        self.response[i] = self.uart:read()
     end
     self.last_rx_byte_time = millis()
 
-    if not self:verify_modbus_rx_header(response) then
+    if not self:verify_modbus_rx_header(self.response) then
         self:_update_cmd_status(ORCAMotor.STATUS.ERROR)
         return true
     end
 
     if self.in_flight.fn == MODBUS_FN_CODE.ORCA_EXT_MTR then
-        self:_parse_modbus_rx_payload(response, ext_motor_schema) -- Populates the current state
+        self:_parse_modbus_rx_payload(self.response, ext_motor_schema) -- Populates the current state
         self:_parse_reported_errors()
         self:_update_cmd_status(ORCAMotor.STATUS.OK)
     elseif self.in_flight.fn == MODBUS_FN_CODE.WRITE_SINGLE_REG or self.in_flight.fn == MODBUS_FN_CODE.WRITE_MULTI_REG then
-        local status = self:_verify_modbus_write_response(response) and ORCAMotor.STATUS.OK or ORCAMotor.STATUS.ERROR
+        local status = self:_verify_modbus_write_response(self.response) and ORCAMotor.STATUS.OK or ORCAMotor.STATUS.ERROR
         self:_update_cmd_status(status)
     elseif self.in_flight.fn == MODBUS_FN_CODE.READ_SINGLE_REG then
-        local status = self:_verify_modbus_read_response(response) and ORCAMotor.STATUS.OK or ORCAMotor.STATUS.ERROR
+        local status = self:_verify_modbus_read_response(self.response) and ORCAMotor.STATUS.OK or ORCAMotor.STATUS.ERROR
         self:_update_cmd_status(status)
     elseif self.in_flight.fn == MODBUS_FN_CODE.ORCA_MTR_RD then
         self.state = parse_modbus_rx_payload(response, read_motor_schema)
