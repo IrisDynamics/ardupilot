@@ -897,7 +897,11 @@ end
 
 -- Set the timeout for the auto zero routine
 function ORCAMotor:set_auto_zero_timeout(ms)
-    self.auto_zero_timeout_ms = ms
+    if ms <= 0 then
+        gcs:send_text(MAV_SEVERITY.WARNING, "ORCA%d: Invalid auto zero timeout")
+    else
+        self.auto_zero_timeout_ms = ms
+    end
 end
 
 -- Check if auto zero currently running
