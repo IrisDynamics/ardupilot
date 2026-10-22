@@ -58,6 +58,7 @@ local ORCA_ERR = {
 }
 ORCAMotor.STATUS = { QUEUED = 0, PROCESSING = 1, OK = 2, ERROR = 3 }
 ORCAMotor.KIN_SHAPE = { MIN_POWER = 0x00, MAX_SMOOTHING = 0x01 }
+ORCAMotor.KIN_STATUS = { DONE = 0, WAITING = 1, RUNNING = 2 }
 
 local kin_reg_start = 780
 local kin_reg_offset = 6
@@ -685,12 +686,9 @@ end
 
 function ORCAMotor:_check_kin_status()
     if self.target_mode ~= ORCAMotor.MODE.KINEMATIC or not self.in_flight.rx_data then return end
-
-    self.kin_motion_status.running = ((self.in_flight.rx_data & 0x8000) > 0) and true or false
-    self.kin_motion_status.id = self.in_flight.rx_data & 0x7FFF
-
+    self.kin_motion.status = ((self.in_flight.rx_data & 0x8000) > 0) and ORCAMotor.KIN_STATUS.RUNNING or ORCAMotor.KIN_STATUS.DONE
+    self.kin_motion.id = self.in_flight.rx_data & 0x7FFF
 end
-
 
 --==========================================
 -- Private Setters
@@ -773,8 +771,8 @@ function ORCAMotor.new(port_num, instance_num)
 
     self.auto_zero_timeout_ms = 3000
     self.auto_zero_start_ms = 0
-    self.kin_motion_status = {
-        running = false,
+    self.kin_motion = {
+        status = ORCAMotor.KIN_STATUS.DONE,
         id = nil
     }
     self:set_target_mode(ORCAMotor.MODE.SLEEP) -- Synchronise the motor
@@ -809,6 +807,7 @@ function ORCAMotor:set_target_mode(target_mode)
             task = function() self:_set_mode(target_mode) end,
             handle = handle
         })
+        self.kin_motion.status = ORCAMotor.KIN_STATUS.WAITING
     else
         local valid_mode = false
         for _, mode in pairs(ORCAMotor.MODE) do
@@ -1029,6 +1028,15 @@ function ORCAMotor:trigger_kinematic_motion(id)
     end
 
     return handle
+end
+
+function ORCAMotor:get_current_kinematic()
+    local copy = self.kin_motion
+    return copy
+end
+
+function ORCAMotor:get_current_mode()
+    return self.target_mode
 end
 
 return ORCAMotor
