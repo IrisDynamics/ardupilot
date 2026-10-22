@@ -388,42 +388,38 @@ function ORCAMotor:verify_modbus_rx_header(response)
 end
 
 -- Build the TX payload for the Extended Motor Command
-local function build_ext_tx_payload(mode, data, read_addr)
+function ORCAMotor:_build_ext_tx_payload(mode, data, read_addr)
     mode = mode or ORCAMotor.MODE.SLEEP
     data = data or 0
     read_addr = read_addr or 0
-    local payload = { -- Bitwise AND needs to be done to guarantee 8-bit length
-        mode & 0xFF,
-        (data >> 24) & 0xFF,
-        (data >> 16) & 0xFF,
-        (data >> 8) & 0xFF,
-        data & 0xFF,
-        (read_addr >> 8) & 0xFF,
-        (read_addr) & 0xFF
-    }
-    return payload
+    -- Bitwise AND needs to be done to guarantee 8-bit length
+    self.payload[1] = mode & 0xFF
+    self.payload[2] = (data >> 24) & 0xFF
+    self.payload[3] = (data >> 16) & 0xFF
+    self.payload[4] = (data >> 8) & 0xFF
+    self.payload[5] = data & 0xFF
+    self.payload[6] = (read_addr >> 8) & 0xFF
+    self.payload[7] = (read_addr) & 0xFF
 end
 
 -- Build the TX payload for a Modbus write command (single or multi-register)
-local function build_write_tx_payload(fn, reg, data)
-    local payload = {}
+function ORCAMotor:_build_write_tx_payload(fn, reg, data)
     if fn == MODBUS_FN_CODE.WRITE_SINGLE_REG then
-        payload[1] = (reg >> 8) & 0xFF
-        payload[2] = reg & 0xFF
-        payload[3] = (data >> 8) & 0xFF
-        payload[4] = data & 0xFF
+        self.payload[1] = (reg >> 8) & 0xFF
+        self.payload[2] = reg & 0xFF
+        self.payload[3] = (data >> 8) & 0xFF
+        self.payload[4] = data & 0xFF
     elseif fn == MODBUS_FN_CODE.WRITE_MULTI_REG then
         for _, val in ipairs(data) do
-            table.insert(payload, (val >> 8) & 0xFF)
-            table.insert(payload, val & 0xFF)
+            table.insert(self.payload, (val >> 8) & 0xFF)
+            table.insert(self.payload, val & 0xFF)
         end
-        table.insert(payload, 1, (reg >> 8) & 0xFF)
-        table.insert(payload, 2, reg & 0xFF)
-        table.insert(payload, 3, (#data >> 8) & 0xFF)
-        table.insert(payload, 4, #data & 0xFF)
-        table.insert(payload, 5, (#data * 2) & 0xFF)
+        table.insert(self.payload, 1, (reg >> 8) & 0xFF)
+        table.insert(self.payload, 2, reg & 0xFF)
+        table.insert(self.payload, 3, (#data >> 8) & 0xFF)
+        table.insert(self.payload, 4, #data & 0xFF)
+        table.insert(self.payload, 5, (#data * 2) & 0xFF)
     end
-    return payload
 end
 
 local function build_mtr_rd_tx_payload(reg, len)
@@ -513,22 +509,22 @@ function ORCAMotor:_transmit_command(cmd)
         self.uart:read()
     end
 
-    local payload = {}
     if cmd.fn == MODBUS_FN_CODE.ORCA_EXT_MTR then
-        payload = build_ext_tx_payload(cmd.mode, cmd.data, cmd.addr)
+        self:_build_ext_tx_payload(cmd.mode, cmd.data, cmd.addr)
     elseif cmd.fn == MODBUS_FN_CODE.WRITE_SINGLE_REG or cmd.fn == MODBUS_FN_CODE.WRITE_MULTI_REG then
-        payload = build_write_tx_payload(cmd.fn, cmd.reg, cmd.data)
+        self:_build_write_tx_payload(cmd.fn, cmd.reg, cmd.data)
     elseif cmd.fn == MODBUS_FN_CODE.READ_SINGLE_REG then
-        payload = build_write_tx_payload(MODBUS_FN_CODE.WRITE_SINGLE_REG, cmd.reg, 0x0001) -- Can reuse the single write payload (data = num regs)
+        self:_build_write_tx_payload(MODBUS_FN_CODE.WRITE_SINGLE_REG, cmd.reg, 0x0001) -- Can reuse the single write payload (data = num regs)
     elseif cmd.fn == MODBUS_FN_CODE.ORCA_MTR_RD then
-        payload = build_mtr_rd_tx_payload(cmd.reg, 0x01)
+        payload = build_mtr_rd_tx_payload(cmd.reg, 0x01) --edit
     end
-    build_modbus_tx_frame(cmd.fn, payload)
-    local payload_string = string.char(table.unpack(payload))
+    build_modbus_tx_frame(cmd.fn, self.payload)
+    local payload_string = string.char(table.unpack(self.payload))
     if not self.uart:writestring(payload_string) then  -- Faster than writing individual bytes in for loop
         gcs:send_text(MAV_SEVERITY.ERROR, string.format("ORCA%d: 'writestring' failed"))
         self:_update_cmd_status(ORCAMotor.STATUS.ERROR)
     end
+    self.payload = {} -- Clear buffer
 end
 
 -- Receive correct byte count, verify header, and parse response
@@ -775,6 +771,7 @@ function ORCAMotor.new(port_num, instance_num)
         data = nil,
         reg = nil
     }
+    self.payload = {}
 
     -- Motor state information
     self.target_position = 0
