@@ -431,16 +431,14 @@ local function build_mtr_rd_tx_payload(reg, len)
 end
 
 -- Parse the RX payload, returns a table based on provided schema
-local function parse_modbus_rx_payload(data_bytes, schema)
-    local result = {}
+function ORCAMotor:_parse_modbus_rx_payload(data_bytes, schema)
     for _, field in ipairs(schema) do                         -- Iterate through schema
         local decoder = parse[field.type]                     -- Define what parse function to use
         if decoder and (field.offset + 1) <= #data_bytes then --Verify that offsets and payload length works
             local raw_val = decoder(data_bytes, field.offset)
-            result[field.name] = raw_val
+            self.state[field.name] = raw_val
         end
     end
-    return result
 end
 
 -- Queue a Modbus register write
@@ -546,7 +544,7 @@ function ORCAMotor:_check_response()
     end
 
     if self.in_flight.fn == MODBUS_FN_CODE.ORCA_EXT_MTR then
-        self.state = parse_modbus_rx_payload(response, ext_motor_schema) -- Populates the current state
+        self:_parse_modbus_rx_payload(response, ext_motor_schema) -- Populates the current state
         self:_parse_reported_errors()
         self:_update_cmd_status(ORCAMotor.STATUS.OK)
     elseif self.in_flight.fn == MODBUS_FN_CODE.WRITE_SINGLE_REG or self.in_flight.fn == MODBUS_FN_CODE.WRITE_MULTI_REG then
@@ -772,6 +770,7 @@ function ORCAMotor.new(port_num, instance_num)
         reg = nil
     }
     self.payload = {}
+    self.response = {}
 
     -- Motor state information
     self.target_position = 0
