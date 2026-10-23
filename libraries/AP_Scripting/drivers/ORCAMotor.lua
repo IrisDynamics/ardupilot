@@ -422,12 +422,10 @@ function ORCAMotor:_build_write_tx_payload(fn, reg, data)
     end
 end
 
-local function build_mtr_rd_tx_payload(reg, len)
-    local payload = {}
-    payload[1] = (reg >> 8) & 0xFF
-    payload[2] = reg & 0xFF
-    payload[3] = len & 0xFF
-    return payload
+function ORCAMotor:_build_mtr_rd_tx_payload(reg, len)
+    self.payload[1] = (reg >> 8) & 0xFF
+    self.payload[2] = reg & 0xFF
+    self.payload[3] = len & 0xFF
 end
 
 -- Parse the RX payload, returns a table based on provided schema
@@ -514,7 +512,7 @@ function ORCAMotor:_transmit_command(cmd)
     elseif cmd.fn == MODBUS_FN_CODE.READ_SINGLE_REG then
         self:_build_write_tx_payload(MODBUS_FN_CODE.WRITE_SINGLE_REG, cmd.reg, 0x0001) -- Can reuse the single write payload (data = num regs)
     elseif cmd.fn == MODBUS_FN_CODE.ORCA_MTR_RD then
-        payload = build_mtr_rd_tx_payload(cmd.reg, 0x01) --edit
+        self:_build_mtr_rd_tx_payload(cmd.reg, 0x01) --edit
     end
     build_modbus_tx_frame(cmd.fn, self.payload)
     local payload_string = string.char(table.unpack(self.payload))
@@ -554,7 +552,7 @@ function ORCAMotor:_check_response()
         local status = self:_verify_modbus_read_response(self.response) and ORCAMotor.STATUS.OK or ORCAMotor.STATUS.ERROR
         self:_update_cmd_status(status)
     elseif self.in_flight.fn == MODBUS_FN_CODE.ORCA_MTR_RD then
-        self.state = parse_modbus_rx_payload(response, read_motor_schema)
+        self:_parse_modbus_rx_payload(self.response, read_motor_schema)
         self:_update_cmd_status(ORCAMotor.STATUS.OK)
     end
     return true
@@ -702,7 +700,7 @@ end
 
 -- Only parse the kinematic status if it was the last command
 function ORCAMotor:_check_kin_status()
-    if self.target_mode ~= ORCAMotor.MODE.KINEMATIC or self.in_flight.reg ~= REGISTER.KINEMATIC_STATUS then return end  
+    if self.target_mode ~= ORCAMotor.MODE.KINEMATIC or self.cmd.reg ~= REGISTER.KINEMATIC_STATUS then return end  
     self.kin_motion.status = (self.state.read_reg_2 & 0x8000 ~= 0) and ORCAMotor.KIN_STATUS.RUNNING or ORCAMotor.KIN_STATUS.DONE
     self.kin_motion.id = self.state.read_reg_2 & 0x7FFF
 end
