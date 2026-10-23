@@ -575,8 +575,8 @@ function ORCAMotor:_build_idle_cmd()
         self.cmd.mode = ORCA_EXT_CMD_MODE.FORCE
         self.cmd.data = self.target_force
     elseif self.target_mode == ORCAMotor.MODE.KINEMATIC then
-        self.cmd.fn = MODBUS_FN_CODE.READ_SINGLE_REG
-        self.cmd.rx_len = MODBUS_RX_LEN.READ_SINGLE_REG
+        self.cmd.fn = MODBUS_FN_CODE.ORCA_MTR_RD
+        self.cmd.rx_len = MODBUS_RX_LEN.ORCA_MTR_RD
         self.cmd.reg = REGISTER.KINEMATIC_STATUS
     end
     return self.cmd
@@ -700,7 +700,7 @@ end
 
 -- Only parse the kinematic status if it was the last command
 function ORCAMotor:_check_kin_status()
-    if self.target_mode ~= ORCAMotor.MODE.KINEMATIC or self.cmd.reg ~= REGISTER.KINEMATIC_STATUS then return end  
+    if self.target_mode ~= ORCAMotor.MODE.KINEMATIC or self.in_flight.reg ~= REGISTER.KINEMATIC_STATUS then return end  
     self.kin_motion.status = (self.state.read_reg_2 & 0x8000 ~= 0) and ORCAMotor.KIN_STATUS.RUNNING or ORCAMotor.KIN_STATUS.DONE
     self.kin_motion.id = self.state.read_reg_2 & 0x7FFF
 end
