@@ -59,6 +59,7 @@ local ORCA_ERR = {
 ORCAMotor.STATUS = { QUEUED = 0, PROCESSING = 1, OK = 2, ERROR = 3 }
 ORCAMotor.KIN_SHAPE = { MIN_POWER = 0x00, MAX_SMOOTHING = 0x01 }
 ORCAMotor.KIN_STATUS = { DONE = 0, WAITING = 1, RUNNING = 2 }
+local QUEUE_TASK = { SET_MODE = 0, SET_POS = 1, SET_FORCE = 2, SET_AZ = 4}
 
 local kin_reg_start = 780
 local kin_reg_offset = 6
@@ -753,6 +754,23 @@ function ORCAMotor:_set_auto_zero_mode()
     self.auto_zero_start_ms = millis()
 end
 
+function ORCAMotor:_handle_queued_task()
+    local t = self.cmd.task
+    if t == QUEUE_TASK.SET_MODE then
+        local mode = self.cmd.mode or self.cmd.data
+        self.target_mode = mode
+    elseif t == QUEUE_TASK.SET_POS then
+        self.target_mode = ORCAMotor.MODE.POSITION
+        self.target_position = self.cmd.data
+    elseif t == QUEUE_TASK.SET_FORCE then
+        self.target_mode = ORCAMotor.MODE.FORCE
+        self.target_position = self.cmd.data
+    elseif t == QUEUE_TASK.SET_AZ then
+        self.target_mode = ORCAMotor.MODE.AUTO_ZERO
+        self.auto_zero_start_ms = millis()
+    end
+end
+
 --==========================================
 -- Public Functions
 --==========================================
@@ -851,7 +869,7 @@ function ORCAMotor:set_target_mode(target_mode)
             rx_len = MODBUS_RX_LEN.WRITE_SINGLE_REG,
             reg = REGISTER.CTRL_REG_3,
             data = ORCAMotor.MODE.AUTO_ZERO,
-            task = function() self:_set_auto_zero_mode() end,
+            task = QUEUE_TASK.SET_AZ,
             handle = handle
         })
         end
@@ -861,7 +879,7 @@ function ORCAMotor:set_target_mode(target_mode)
             rx_len = MODBUS_RX_LEN.WRITE_SINGLE_REG,
             reg = REGISTER.CTRL_REG_3,
             data = ORCAMotor.MODE.KINEMATIC,
-            task = function() self:_set_mode(target_mode) end,
+            task = QUEUE_TASK.SET_MODE,
             handle = handle
         })
         self.kin_motion.status = ORCAMotor.KIN_STATUS.WAITING
@@ -877,7 +895,7 @@ function ORCAMotor:set_target_mode(target_mode)
                 fn = MODBUS_FN_CODE.ORCA_EXT_MTR,
                 rx_len = MODBUS_RX_LEN.ORCA_EXT_MTR,
                 mode = target_mode,
-                task = function() self:_set_mode(target_mode) end,
+                task = QUEUE_TASK.SET_MODE,
                 handle = handle
             })
         else
@@ -899,7 +917,7 @@ function ORCAMotor:set_target_position_um(target_pos)
         rx_len = MODBUS_RX_LEN.ORCA_EXT_MTR,
         mode = ORCA_EXT_CMD_MODE.POSITION,
         data = target_pos,
-        task = function() self:_set_position(target_pos) end,
+        task = QUEUE_TASK.SET_POS,
         handle = handle
     })
     return handle
@@ -916,7 +934,7 @@ function ORCAMotor:set_target_force_mN(target_force)
         rx_len = MODBUS_RX_LEN.ORCA_EXT_MTR,
         mode = ORCA_EXT_CMD_MODE.FORCE,
         data = target_force,
-        task = function() self:_set_force(target_force) end,
+        task = QUEUE_TASK.SET_FORCE,
         handle = handle
     })
     return handle
@@ -960,7 +978,7 @@ function ORCAMotor:update()
         self.cmd.reg = REGISTER.MOTOR_STATUS
     elseif #self.queue > 0 then
         self.cmd = table.remove(self.queue, 1)
-        if self.cmd.task then self.cmd.task() end -- Run a function before transmission
+        if self.cmd.task then self:_handle_queued_task() end -- Run a function before transmission
     else
         self:_build_idle_cmd()
     end
