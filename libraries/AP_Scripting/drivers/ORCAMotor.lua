@@ -11,8 +11,8 @@ local MODBUS_PARTIY = 2
 local MODBUS_BAUD = 19200
 local MODBUS_STOP_BITS = 1
 local MODBUS_FLOW_CTRL = 0
-local MODBUS_FN_CODE = { ORCA_EXT_MTR = 0x66, WRITE_SINGLE_REG = 0x06, WRITE_MULTI_REG = 0x10, READ_SINGLE_REG = 0x03 }
-local MODBUS_RX_LEN = { ORCA_EXT_MTR = 42, WRITE_SINGLE_REG = 8, WRITE_MULTI_REG = 8, READ_SINGLE_REG = 7 }
+local MODBUS_FN_CODE = { ORCA_EXT_MTR = 0x66, WRITE_SINGLE_REG = 0x06, WRITE_MULTI_REG = 0x10, READ_SINGLE_REG = 0x03, ORCA_MTR_RD = 0x68 }
+local MODBUS_RX_LEN = { ORCA_EXT_MTR = 42, WRITE_SINGLE_REG = 8, WRITE_MULTI_REG = 8, READ_SINGLE_REG = 7, ORCA_MTR_RD = 24 }
 local MODBUS_TIMEOUT_MS = 1000
 
 -- ORCA specific
@@ -235,6 +235,18 @@ end
 
 local parse = {}
 
+function parse.u8(bytes, idx)
+    return bytes[idx]
+end
+
+function parse.i8(bytes, idx)
+    local u_val = parse.u8(bytes, idx)
+    if u_val >= 0x80 then
+        return u_val - 0x100
+    end
+    return u_val
+end
+
 -- 16-bit Unsigned Integer
 function parse.u16(bytes, idx)
     return (bytes[idx] << 8) | bytes[idx + 1]
@@ -328,6 +340,17 @@ local ext_motor_schema = {
     { name = "read_reg_2",   type = "i16", offset = 39 }
 }
 
+local read_motor_schema = {
+    { name = "read_reg_1",     type = "u16", offset = 3 },
+    { name = "read_reg_2",  type = "u16", offset = 5 },
+    { name = "mode",   type = "u8", offset = 7 },
+    { name = "position_um", type = "i32", offset = 8 },
+    { name = "force_mN", type = "i32", offset = 12 },
+    { name = "power_W",  type = "u16", offset = 16 },
+    { name = "board_temp_C", type = "i8", offset = 18 },
+    { name = "voltage_mV",   type = "u16", offset = 20 },
+}
+
 --==========================================
 -- Modbus Transaction Functions
 --==========================================
@@ -409,6 +432,14 @@ local function build_write_tx_payload(fn, reg, data)
         table.insert(payload, 4, #data & 0xFF)
         table.insert(payload, 5, (#data * 2) & 0xFF)
     end
+    return payload
+end
+
+local function build_mtr_rd_tx_payload(reg, len)
+    local payload = {}
+    payload[1] = (reg >> 8) & 0xFF
+    payload[2] = reg & 0xFF
+    payload[3] = len & 0xFF
     return payload
 end
 
@@ -496,6 +527,8 @@ function ORCAMotor:_transmit_command(cmd)
         payload = build_write_tx_payload(cmd.fn, cmd.reg, cmd.data)
     elseif cmd.fn == MODBUS_FN_CODE.READ_SINGLE_REG then
         payload = build_write_tx_payload(MODBUS_FN_CODE.WRITE_SINGLE_REG, cmd.reg, 0x0001) -- Can reuse the single write payload (data = num regs)
+    elseif cmd.fn == MODBUS_FN_CODE.ORCA_MTR_RD then
+        payload = build_mtr_rd_tx_payload(cmd.reg, 0x01)
     end
     build_modbus_tx_frame(cmd.fn, payload)
     local payload_string = string.char(table.unpack(payload))
@@ -533,6 +566,9 @@ function ORCAMotor:_check_response()
     elseif self.in_flight.fn == MODBUS_FN_CODE.READ_SINGLE_REG then
         local status = self:_verify_modbus_read_response(response) and ORCAMotor.STATUS.OK or ORCAMotor.STATUS.ERROR
         self:_update_cmd_status(status)
+    elseif self.in_flight.fn == MODBUS_FN_CODE.ORCA_MTR_RD then
+        self.state = parse_modbus_rx_payload(response, read_motor_schema)
+        self:_update_cmd_status(ORCAMotor.STATUS.OK)
     end
     return true
 end
@@ -562,8 +598,8 @@ function ORCAMotor:_build_idle_cmd()
         cmd.mode = ORCA_EXT_CMD_MODE.FORCE
         cmd.data = self.target_force
     elseif self.target_mode == ORCAMotor.MODE.KINEMATIC then
-        cmd.fn = MODBUS_FN_CODE.READ_SINGLE_REG
-        cmd.rx_len = MODBUS_RX_LEN.READ_SINGLE_REG
+        cmd.fn = MODBUS_FN_CODE.ORCA_MTR_RD
+        cmd.rx_len = MODBUS_RX_LEN.ORCA_MTR_RD
         cmd.reg = REGISTER.KINEMATIC_STATUS
     end
     return cmd
@@ -666,6 +702,7 @@ function ORCAMotor:_check_auto_zero()
     -- Auto zero still running
 end
 
+-- Return what register to write, and the control payload
 local function _get_kin_frame(motion)
     local reg = motion.id * kin_reg_offset + kin_reg_start
     local motion_options = (motion.auto_next == true) and 0xFF01 or 0xFF00
@@ -684,10 +721,11 @@ local function _get_kin_frame(motion)
     return reg, payload
 end
 
+-- Only parse the kinematic status if it was the last command
 function ORCAMotor:_check_kin_status()
-    if self.target_mode ~= ORCAMotor.MODE.KINEMATIC or not self.in_flight.rx_data then return end
-    self.kin_motion.status = ((self.in_flight.rx_data & 0x8000) > 0) and ORCAMotor.KIN_STATUS.RUNNING or ORCAMotor.KIN_STATUS.DONE
-    self.kin_motion.id = self.in_flight.rx_data & 0x7FFF
+    if self.target_mode ~= ORCAMotor.MODE.KINEMATIC or self.in_flight.reg ~= REGISTER.KINEMATIC_STATUS then return end  
+    self.kin_motion.status = (self.state.read_reg_2 & 0x8000 ~= 0) and ORCAMotor.KIN_STATUS.RUNNING or ORCAMotor.KIN_STATUS.DONE
+    self.kin_motion.id = self.state.read_reg_2 & 0x7FFF
 end
 
 --==========================================
