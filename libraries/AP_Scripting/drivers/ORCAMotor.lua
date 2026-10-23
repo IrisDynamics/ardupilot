@@ -499,28 +499,52 @@ end
 --==========================================
 
 -- Accept a command item, build payload, finalise frame, and transmit
+-- Utilise cached payload string if nothing changed
 function ORCAMotor:_transmit_command(cmd)
     -- Flush read buffer
     while self.uart:available():toint() > 0 do
         self.uart:read()
     end
 
-    if cmd.fn == MODBUS_FN_CODE.ORCA_EXT_MTR then
-        self:_build_ext_tx_payload(cmd.mode, cmd.data, cmd.addr)
-    elseif cmd.fn == MODBUS_FN_CODE.WRITE_SINGLE_REG or cmd.fn == MODBUS_FN_CODE.WRITE_MULTI_REG then
-        self:_build_write_tx_payload(cmd.fn, cmd.reg, cmd.data)
-    elseif cmd.fn == MODBUS_FN_CODE.READ_SINGLE_REG then
-        self:_build_write_tx_payload(MODBUS_FN_CODE.WRITE_SINGLE_REG, cmd.reg, 0x0001) -- Can reuse the single write payload (data = num regs)
-    elseif cmd.fn == MODBUS_FN_CODE.ORCA_MTR_RD then
-        self:_build_mtr_rd_tx_payload(cmd.reg, 0x01) --edit
+    local payload_string
+
+    if self.cached_tx_str and 
+       self.last_tx_fn == cmd.fn and 
+       self.last_tx_mode == cmd.mode and 
+       self.last_tx_data == cmd.data and 
+       self.last_tx_reg == cmd.reg then
+        
+        -- Cache hit: reuse the pre-built string
+        payload_string = self.cached_tx_str
+    else
+        -- Cache miss: rebuild the payload
+        if cmd.fn == MODBUS_FN_CODE.ORCA_EXT_MTR then
+            self:_build_ext_tx_payload(cmd.mode, cmd.data, cmd.addr)
+        elseif cmd.fn == MODBUS_FN_CODE.WRITE_SINGLE_REG or cmd.fn == MODBUS_FN_CODE.WRITE_MULTI_REG then
+            self:_build_write_tx_payload(cmd.fn, cmd.reg, cmd.data)
+        elseif cmd.fn == MODBUS_FN_CODE.READ_SINGLE_REG then
+            self:_build_write_tx_payload(MODBUS_FN_CODE.WRITE_SINGLE_REG, cmd.reg, 0x0001)
+        elseif cmd.fn == MODBUS_FN_CODE.ORCA_MTR_RD then
+            self:_build_mtr_rd_tx_payload(cmd.reg, 0x01) 
+        end
+        
+        build_modbus_tx_frame(cmd.fn, self.payload)
+        payload_string = string.char(table.unpack(self.payload))
+        
+        -- Update cache
+        self.cached_tx_str = payload_string
+        self.last_tx_fn = cmd.fn
+        self.last_tx_mode = cmd.mode
+        self.last_tx_data = cmd.data
+        self.last_tx_reg = cmd.reg
+        
+        self.payload = {} -- Clear buffer for next use
     end
-    build_modbus_tx_frame(cmd.fn, self.payload)
-    local payload_string = string.char(table.unpack(self.payload))
+
     if not self.uart:writestring(payload_string) then  -- Faster than writing individual bytes in for loop
         gcs:send_text(MAV_SEVERITY.ERROR, string.format("ORCA%d: 'writestring' failed"))
         self:_update_cmd_status(ORCAMotor.STATUS.ERROR)
     end
-    self.payload = {} -- Clear buffer
 end
 
 -- Receive correct byte count, verify header, and parse response
@@ -756,7 +780,7 @@ function ORCAMotor.new(port_num, instance_num)
 
     -- Message variables
     self.queue = {}      -- Gets loaded when users call public member functions
-    self.in_flight = nil -- Current transmission
+    self.in_flight = nil -- Reference to cmd
     self.tx_time = 0
     self.last_rx_byte_time = 0
     self.cmd = {
@@ -765,7 +789,8 @@ function ORCAMotor.new(port_num, instance_num)
         rx_data = nil,
         mode = nil,
         data = nil,
-        reg = nil
+        reg = nil,
+        handle = nil
     }
     self.payload = {}
     self.response = {}
@@ -800,6 +825,13 @@ function ORCAMotor.new(port_num, instance_num)
         status = ORCAMotor.KIN_STATUS.DONE,
         id = 0
     }
+    --Cached objects
+    self.cached_tx_str = nil
+    self.last_tx_fn = nil
+    self.last_tx_mode = nil
+    self.last_tx_data = nil
+    self.last_tx_reg = nil
+
     self:set_target_mode(ORCAMotor.MODE.SLEEP) -- Synchronise the motor
     return self
 end
