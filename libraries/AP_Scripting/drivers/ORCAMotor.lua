@@ -962,10 +962,12 @@ function ORCAMotor:update()
             self:_check_auto_zero()
             self:_check_kin_status()
             self.in_flight = nil
+            self.cmd = {}
         elseif (millis() - self.tx_time) > MODBUS_TIMEOUT_MS then
             gcs:send_text(MAV_SEVERITY.WARNING, string.format("ORCA%d: Command timeout", self.instance))
             self:_update_cmd_status(ORCAMotor.STATUS.ERROR)
             self.in_flight = nil
+            self.cmd = {}
         else
             return
         end
