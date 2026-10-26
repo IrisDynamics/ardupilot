@@ -527,7 +527,7 @@ end
 
 -- Control rate of logging so duplicate errors do not spam Mavlink
 function ORCAMotor:_log_error(err_key, err, msg)
-    if err.mask == self.last_err and (millis() - self.last_err_log_ms) < ERROR_LOG_MIN_PERIOD_MS then return end
+    if self.state.errors == self.last_err and (millis() - self.last_err_log_ms) < ERROR_LOG_MIN_PERIOD_MS then return end
     gcs:send_text(err.severity, string.format("ORCA%d ERR:%s - %s", self.instance, err_key, err.message))
     gcs:send_text(err.severity, string.format("ORCA%d fix: %s", self.instance, msg))
     self.last_err_log_ms = millis()
@@ -556,19 +556,20 @@ end
 -- Parse the error table populated by the idle command
 function ORCAMotor:_parse_reported_errors()
     if self.state.errors == 0 then 
-        if self.last_err ~= nil then -- Active error was cleared in the motor
+        if self.last_err ~= 0 then -- Active error was cleared in the motor
             gcs:send_text(MAV_SEVERITY.INFO, string.format("ORCA%d: Errors cleared", self.instance))
         end
-        self.last_err = nil
+        self.last_err = 0
         return
     end -- Early return if all clear
 
     for err_key, err in pairs(ORCA_ERR) do
         if self.state.errors & err.mask == err.mask then
-            self.last_err = err.mask
             self:_handle_errror(err_key, err)
         end
     end
+
+    self.last_err = self.state.errors
 end
 
 -- Gets called as transaction progresses
@@ -650,7 +651,7 @@ function ORCAMotor.new(port_num, instance_num)
         read_reg_1 = 0,
         read_reg_2 = 0
     }
-    self.last_err = nil
+    self.last_err = 0
     self.last_err_log_ms = 0
     return self
 end
