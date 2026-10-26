@@ -4,7 +4,7 @@ ORCAMotor.__index = ORCAMotor
 -- ArduPilot specific
 local MAV_SEVERITY = { EMERGENCY = 0, ALERT = 1, CRITICAL = 2, ERROR = 3, WARNING = 4, NOTICE = 5, INFO = 6, DEBUG = 7 }
 local PARAM_TABLE_KEY = 115
-local ERROR_LOG_RATE = 10000
+local ERROR_LOG_MIN_PERIOD_MS = 10000
 
 -- Modbus specific
 local MODBUS_PARTIY = 2
@@ -527,7 +527,7 @@ end
 
 -- Control rate of logging so duplicate errors do not spam Mavlink
 function ORCAMotor:_log_error(err_key, err, msg)
-    if err.mask == self.last_err and (millis() - self.last_err_log_ms) < ERROR_LOG_RATE then return end
+    if err.mask == self.last_err and (millis() - self.last_err_log_ms) < ERROR_LOG_MIN_PERIOD_MS then return end
     gcs:send_text(err.severity, string.format("ORCA%d ERR:%s - %s", self.instance, err_key, err.message))
     gcs:send_text(err.severity, string.format("ORCA%d fix: %s", self.instance, msg))
     self.last_err_log_ms = millis()
