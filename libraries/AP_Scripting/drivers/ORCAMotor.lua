@@ -66,7 +66,7 @@ end
 
 function ORCAMotor:_parameter_init()
     self.param_prefix = string.format("ORCA%d_", self.instance)
-    assert(param:add_table(PARAM_TABLE_KEY, self.param_prefix, 16),
+    assert(param:add_table(PARAM_TABLE_KEY, self.param_prefix, 15),
         string.format("could not add param table %s", self.param_prefix))
 
     --[[
@@ -193,22 +193,13 @@ function ORCAMotor:_parameter_init()
     self.params["autozero_speed"] = self:bind_add_param("AZ_SPD", 13, 50)
 
     --[[
-    // @Param: AZ_EXIT
-    // @DisplayName: Auto zero exit mode
-    // @Description: The mode to enter after completing auto zero
-    // @Values: 1:Sleep,2:Force,3:Position,4:Haptic,5:Kinematic,11:PWM
-    // @User: Standard
-    --]]
-    self.params["autozero_exit_mode"] = self:bind_add_param("AZ_EXIT", 14, ORCAMotor.MODE.SLEEP)
-
-    --[[
     // @Param: APPLY
     // @DisplayName: Apply params
     // @Description: Triggers the routine that loads all parameters to the motor
     // @Values: 0:None,1:Apply
     // @User: Standard
     ]]
-    self.params["apply"] = self:bind_add_param("APPLY", 15, 0)
+    self.params["apply"] = self:bind_add_param("APPLY", 14, 0)
 
     --[[
     // @Param: ZERO_POS
@@ -217,7 +208,7 @@ function ORCAMotor:_parameter_init()
     // @Values: 0:None,1:Apply
     // @User: Standard
     ]]
-    self.params["zero_pos"] = self:bind_add_param("ZERO_POS", 16, 0)
+    self.params["zero_pos"] = self:bind_add_param("ZERO_POS", 15, 0)
     self.params_loaded = true
 end
 
@@ -420,6 +411,7 @@ end
 -- Queue a Modbus register write
 -- 'data' can be a single value or table of values for multiple write
 -- set front to 'true' to push to front of queue
+-- handle (if provided) used to track write status
 function ORCAMotor:_queue_write_register(reg, data, front, handle)
     local fn = type(data) == "table" and MODBUS_FN_CODE.WRITE_MULTI_REG or MODBUS_FN_CODE.WRITE_SINGLE_REG
     local rx_len = type(data) == "table" and MODBUS_RX_LEN.WRITE_MULTI_REG or MODBUS_RX_LEN.WRITE_SINGLE_REG
@@ -458,6 +450,7 @@ function ORCAMotor:_verify_modbus_write_response(response)
     return true
 end
 
+-- Verify a Modbus read single register response
 function ORCAMotor:_verify_modbus_read_response(response)
     local valid = false
     local byte_count = response[3] & 0xFF
@@ -616,6 +609,8 @@ function ORCAMotor:_update_cmd_status(status)
     end
 end
 
+-- Verify that the params are set and have been loaded
+-- Ensures motor is set up to run
 function ORCAMotor:_is_auto_zero_allowed()
     if not self.params_loaded then
         gcs:send_text(MAV_SEVERITY.WARNING, "APPLY params to enable zeroing")
@@ -631,8 +626,9 @@ function ORCAMotor:_is_auto_zero_allowed()
     return false
 end
 
+-- Check current status of auto zero routine
 function ORCAMotor:_check_auto_zero()
-    if self.target_mode ~= ORCAMotor.MODE.AUTO_ZERO then return end
+    if self.target_mode ~= ORCAMotor.MODE.AUTO_ZERO or self.in_flight.reg ~= REGISTER.MOTOR_STATUS then return end
 
     if millis() - self.auto_zero_start_ms > self.auto_zero_timeout_ms then
         gcs:send_text(MAV_SEVERITY.ERROR, string.format("ORCA%d: Auto zero timeout", self.instance))
@@ -646,11 +642,7 @@ function ORCAMotor:_check_auto_zero()
 
     if az_status == 0 then
         gcs:send_text(MAV_SEVERITY.INFO, string.format("ORCA%d: Auto zero complete", self.instance))
-        if self.params_loaded  and self.params.autozero_exit_mode:get() > 0 then
-            self:set_target_mode(self.params.autozero_exit_mode:get())
-        else
-            self:_set_mode(ORCAMotor.MODE.SLEEP)
-        end
+        self:_set_mode(ORCAMotor.MODE.SLEEP)
     end
     -- Auto zero still running
 end
