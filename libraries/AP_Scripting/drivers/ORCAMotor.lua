@@ -888,7 +888,7 @@ function ORCAMotor:clear_motor_errors()
 end
 
 -- Set the timeout for the auto zero routine
-function ORCAMotor:set_auto_zero_timeout(ms)
+function ORCAMotor:set_auto_zero_timeout_ms(ms)
     if ms <= 0 then
         gcs:send_text(MAV_SEVERITY.WARNING, "ORCA%d: Invalid auto zero timeout")
     else
