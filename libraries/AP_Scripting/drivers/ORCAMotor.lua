@@ -873,7 +873,6 @@ function ORCAMotor:load_params()
     self:_queue_write_register(REGISTER.ZERO_MODE, self.params.autozero_mode:get())
     self:_queue_write_register(REGISTER.AUTO_ZERO_FORCE_N, self.params.autozero_force:get())
     self:_queue_write_register(REGISTER.AUTO_ZERO_SPEED_MMPS, self.params.autozero_speed:get())
-    self:_queue_write_register(REGISTER.AUTO_ZERO_EXIT_MODE, self.params.autozero_exit_mode:get())
     self.params_loaded = true
 end
 
