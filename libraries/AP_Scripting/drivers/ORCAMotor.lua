@@ -604,7 +604,6 @@ function ORCAMotor:_build_idle_cmd()
         self.cmd.rx_len = MODBUS_RX_LEN.ORCA_MTR_RD
         self.cmd.reg = REGISTER.KINEMATIC_STATUS
     end
-    return self.cmd
 end
 
 --==========================================
