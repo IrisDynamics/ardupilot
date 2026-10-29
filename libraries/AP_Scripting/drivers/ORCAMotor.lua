@@ -764,7 +764,7 @@ function ORCAMotor:_handle_queued_task()
         self.target_position = self.cmd.data
     elseif t == QUEUE_TASK.SET_FORCE then
         self.target_mode = ORCAMotor.MODE.FORCE
-        self.target_position = self.cmd.data
+        self.target_force = self.cmd.data
     elseif t == QUEUE_TASK.SET_AZ then
         self.target_mode = ORCAMotor.MODE.AUTO_ZERO
         self.auto_zero_start_ms = millis()
