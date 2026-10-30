@@ -804,7 +804,7 @@ function ORCAMotor.new(port_num, instance_num)
     self.auto_zero_start_ms = 0
     self.kin_motion = {
         status = ORCAMotor.KIN_STATUS.DONE,
-        id = nil
+        id = 0
     }
     self:set_target_mode(ORCAMotor.MODE.SLEEP) -- Synchronise the motor
     return self
@@ -1061,7 +1061,10 @@ function ORCAMotor:trigger_kinematic_motion(id)
 end
 
 function ORCAMotor:get_current_kinematic()
-    local copy = self.kin_motion
+    local copy = {}
+    for key, value in pairs(self.kin_motion) do
+        copy[key] = value
+    end
     return copy
 end
 
