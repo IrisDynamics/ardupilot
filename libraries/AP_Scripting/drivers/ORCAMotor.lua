@@ -218,7 +218,6 @@ function ORCAMotor:_parameter_init()
     // @User: Standard
     ]]
     self.params["zero_pos"] = self:bind_add_param("ZERO_POS", 15, 0)
-    self.params_loaded = true
 end
 
 --==========================================
@@ -669,7 +668,7 @@ end
 -- Ensures motor is set up to run
 function ORCAMotor:_is_auto_zero_allowed()
     if not self.params_loaded then
-        gcs:send_text(MAV_SEVERITY.WARNING, "APPLY params to enable zeroing")
+        gcs:send_text(MAV_SEVERITY.WARNING, "APPLY params to enable auto zeroing")
         return false
     end
     local az_mode = self.params.autozero_mode:get()
