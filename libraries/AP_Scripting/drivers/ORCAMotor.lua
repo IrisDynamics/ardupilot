@@ -75,7 +75,7 @@ end
 
 function ORCAMotor:_parameter_init()
     self.param_prefix = string.format("ORCA%d_", self.instance)
-    assert(param:add_table(PARAM_TABLE_KEY, self.param_prefix, 15),
+    assert(param:add_table(PARAM_TABLE_KEY, self.param_prefix, 16),
         string.format("could not add param table %s", self.param_prefix))
 
     --[[
@@ -218,6 +218,8 @@ function ORCAMotor:_parameter_init()
     // @User: Standard
     ]]
     self.params["zero_pos"] = self:bind_add_param("ZERO_POS", 15, 0)
+
+    self.params["mode_switch"] = self:bind_add_param("MODE_SW", 16, 0)
 end
 
 --==========================================
@@ -952,6 +954,11 @@ function ORCAMotor:update()
         gcs:send_text(MAV_SEVERITY.INFO, string.format("ORCA%d: Zeroing current position", self.instance))
         self:zero_current_position()
         self.params.zero_pos:set_and_save(0)
+    end
+    if self.params.mode_switch:get() > 0 then
+        gcs:send_text(MAV_SEVERITY.INFO, string.format("ORCA%d: Switching modes", self.instance))
+        self:set_target_mode(self.params.mode_switch:get())
+        self.params.mode_switch:set_and_save(0)
     end
 
     -- Response handling
