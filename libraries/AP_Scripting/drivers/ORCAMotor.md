@@ -107,7 +107,7 @@ When an instance is created, a parameter table with the prefix `ORCA<instance>_`
 | `ACC_LIM` | 7 | `1000` | Max acceleration ($mm/s^2$) in Position Mode. ($0 = \text{Infinite}$) |
 | `DEC_LIM` | 8 | `1000` | Max deceleration ($mm/s^2$) in Position Mode. ($0 = \text{Infinite}$) |
 | `SOFT_MS` | 9 | `3000` | Softstart duration ($ms$) for position force ramping, when entering Position mode. |
-| `INV_POS` | 10 | `0` | Invert positive shaft motion direction (`0`: Disabled, `1`: Enabled). (NOT IMPLEMENTED) |
+| `INV_POS` | 10 | `0` | Invert positive shaft motion direction (`0`: Disabled, `1`: Enabled). |
 | `AZ_MODE` | 11 | `0` | Auto-zero mode (`0`: Zero negative positions, `1`: Manual, `2`: Enabled, `3`: On boot). |
 | `AZ_FORCE` | 12 | `30` | Auto-zero max force ($N$). |
 | `AZ_SPD` | 13 | `50` | Auto-zero shaft speed ($mm/s$). |
