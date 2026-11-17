@@ -31,6 +31,7 @@ local REGISTER = {
     PC_IGAIN = 134,
     PC_DVGAIN = 135,
     PC_SOFTSTART_PERIOD = 150,
+    POS_SIGN = 152,
     POS_MAX_VEL = 153,
     POS_MAX_ACCEL = 154,
     POS_MAX_DECEL = 155,
@@ -966,6 +967,7 @@ function ORCAMotor:update()
         if self:_check_response() then
             self:_check_auto_zero()
             self:_check_kin_status()
+            if self.in_flight.callback ~= nil then self.in_flight.callback(self.in_flight.rx_data) end -- Run callback if provided
             self.in_flight = nil
             self.cmd = {}
         elseif (millis() - self.tx_time) > MODBUS_TIMEOUT_MS then
@@ -1013,6 +1015,22 @@ function ORCAMotor:load_params()
     self:_queue_write_register(REGISTER.ZERO_MODE, self.params.autozero_mode:get())
     self:_queue_write_register(REGISTER.AUTO_ZERO_FORCE_N, self.params.autozero_force:get())
     self:_queue_write_register(REGISTER.AUTO_ZERO_SPEED_MMPS, self.params.autozero_speed:get())
+    
+    -- Check sign of position
+    table.insert(self.queue, {
+        fn = MODBUS_FN_CODE.READ_SINGLE_REG,
+        rx_len = MODBUS_RX_LEN.READ_SINGLE_REG,
+        reg = REGISTER.POS_SIGN,
+        callback = function(sign)
+            if sign == self.params.invert_position:get() then
+                -- Actual sign direction matches param config
+                return
+            else
+                -- Invert the sign immediately
+                self:_queue_write_register(REGISTER.CTRL_REG_0, 8, true)
+            end
+        end,
+    })
     self.params_loaded = true
 end
 
