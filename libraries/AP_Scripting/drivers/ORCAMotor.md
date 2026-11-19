@@ -7,7 +7,7 @@ The `ORCAMotor.lua` library is an ArduPilot Lua script driver designed to interf
 ## Prelude
 
 * **Document Version:** 1
-* **Date Modified:** 2026-11-16
+* **Date Modified:** 2026-11-19
 * **Author(s):** Joey Boyer (Iris Dynamics)
 * **Website:** [Iris Dynamics](https://irisdynamics.com)
 * **Contact:** [Form Submission](https://irisdynamics.com/contact)
@@ -24,7 +24,7 @@ The `ORCAMotor.lua` library is an ArduPilot Lua script driver designed to interf
 7. [Internal Architecture & Helper Functions](#internal-architecture--helper-functions)
 8. [Error Handling & Resolution](#error-handling--resolution)
 9. [Limitations](#limitations)
-10. [Example Usage](#example-usage)
+10. [Example Usage](#usage)
 
 ---
 
