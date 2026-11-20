@@ -94,18 +94,18 @@ The ORCA motor adheres to this specification and can utilize an extended set of 
 
 ## ArduPilot Parameters
 
-When an instance is created, a parameter table with the prefix `ORCA<instance>_` is registered with ArduPilot. As always, save your parameters so that the motor configuration is maintained across reboots. Also note that not all parameters are validated prior to being sent to the motor as different motor models will have different limits. If you are unsure, leave advanced user settings to their defaults, or constact Iris Dynamics for support. 
+When an instance is created, a parameter table with the prefix `ORCA<instance>_` is registered with ArduPilot. As always, save your parameters so that the motor configuration is maintained across reboots. Also note that not all parameters are validated prior to being sent to the motor as different motor models will have different limits. If you are unsure, leave advanced user settings to their defaults, or contact Iris Dynamics for support. 
 
 | Parameter | Index | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `ENABLE` | 1 | `0` | Enable driver. Reboot recommended after change (`0`: Disabled, `1`: Enabled). |
-| `FORCE_SAT` | 2 | `300000` | Limits maximum force ($mN$) in either direction ($0$–$300,000$). |
+| `FORCE_SAT` | 2 | `300000` | Limits maximum force ($mN$) in either direction ($\text{0-300,000}$). |
 | `P_PID` | 3 | `1000` | Proportional gain ($N/mm$, scaled $64\times$). |
 | `I_PID` | 4 | `2000` | Integral gain ($N/mm/s$, scaled $64\times$). |
 | `D_PID` | 5 | `100` | Derivative gain ($N \cdot s/mm$, scaled $2\times$). |
-| `SPD_LIM` | 6 | `1000` | Max velocity ($mm/s$) in Position Mode ($0 = \text{Infinite}$). |
-| `ACC_LIM` | 7 | `1000` | Max acceleration ($mm/s^2$) in Position Mode. ($0 = \text{Infinite}$) |
-| `DEC_LIM` | 8 | `1000` | Max deceleration ($mm/s^2$) in Position Mode. ($0 = \text{Infinite}$) |
+| `SPD_LIM` | 6 | `1000` | Max velocity ($mm/s$) in Position Mode ($0 = \infty$). |
+| `ACC_LIM` | 7 | `1000` | Max acceleration ($mm/s^2$) in Position Mode. ($0 = \infty$) |
+| `DEC_LIM` | 8 | `1000` | Max deceleration ($mm/s^2$) in Position Mode. ($0 = \infty$) |
 | `SOFT_MS` | 9 | `3000` | Softstart duration ($ms$) for position force ramping, when entering Position mode. |
 | `INV_POS` | 10 | `0` | Invert positive shaft motion direction (`0`: Disabled, `1`: Enabled). |
 | `AZ_MODE` | 11 | `0` | Auto-zero mode (`0`: Zero negative positions, `1`: Manual, `2`: Enabled, `3`: On boot). |
@@ -361,107 +361,8 @@ If the motor error persists, it will log to the GCS every 10 seconds until the c
 5. If desired, load an ORCA parameter file with `param load <file>` and `reboot`
 
 ### Sample Scripts
+See `examples/ORCAMotor_pitch_control.lua` and `examples/ORCAMotor_kinematics.lua` for some easy tests to get your motor up and running!
 
-#### Pitch Angle Motor Control
-After an auto zero routine executes, tiliting the flight controller will cause the motor to move backware or forward.
-```lua
--- ORCAMotor Pitch Control Script
-local ORCAMotor = require("ORCAMotor")
-
-local PORT_NUM = 0    
-local INSTANCE_NUM = 1
-
--- Target Position Limits (in micrometers)
-local MIN_POSITION_UM = 0
-local MAX_POSITION_UM = 200000
-
--- Control Tuning
-local PITCH_DEADZONE_DEG = 3     -- Ignore pitch changes smaller than this
-local STEP_SIZE_UM = 3000          -- Position increment/decrement per loop step
-
--- Initialize Motor Instance
-local motor = ORCAMotor.new(PORT_NUM, INSTANCE_NUM)
-
-motor:clear_motor_errors()
-motor:load_params()
-motor:set_auto_zero_timeout(5000)
-motor:set_target_mode(ORCAMotor.MODE.AUTO_ZERO)
-
-function update()
-    -- 1. Ensure driver loop updates continuously
-    motor:update()
-
-    -- 2. Fetch vehicle pitch angle from AHRS (returned in radians, convert to degrees)
-    local pitch_deg = math.deg(ahrs:get_pitch_rad())
-
-    -- 3. Retrieve current measured motor position from state table
-    local current_position_um = motor.state.position_um
-    local target_position_um = motor.target_position
-
-    -- 4. Calculate new target based on vehicle pitch angle
-    --    Nose down (pitch < 0): Increase target position
-    --    Nose up (pitch > 0): Decrease target position
-    local new_target_um = target_position_um
-
-    if pitch_deg < -PITCH_DEADZONE_DEG then
-        new_target_um = target_position_um + STEP_SIZE_UM
-    elseif pitch_deg > PITCH_DEADZONE_DEG then
-        new_target_um = target_position_um - STEP_SIZE_UM
-    end
-
-    -- 5. Apply limits (Min: 0 um, Max: MAX_POSITION_UM)
-    new_target_um = math.max(MIN_POSITION_UM, math.min(MAX_POSITION_UM, new_target_um))
-
-    -- 6. Dispatch command if target position changes
-    if new_target_um ~= target_position_um then
-        motor:set_target_position_um(new_target_um)
-    end
-
-    return update, 50
-end
-
-return update()
-```
-
-#### Kinematic Motion Control
-Configure and execute a series of motions
-```Lua
-local ORCA = require("ORCAMotor")
-
-local PORT_NUM = 0    
-local INSTANCE_NUM = 1
-
--- Initialize Motor Instance
-local motor = ORCA.new(PORT_NUM, INSTANCE_NUM)
-
-motor:clear_motor_errors()
-motor:load_params()
-motor:set_auto_zero_timeout_ms(10000)
-motor:set_target_mode(ORCA.MODE.AUTO_ZERO)
-
-motor:set_kin_motion(0, 50000, 1100, 50, ORCA.KIN_SHAPE.MAX_SMOOTHING, true, 1)
-motor:set_kin_motion(1, 120000, 1000, 73, ORCA.KIN_SHAPE.MIN_POWER, true, 2)
-motor:set_kin_motion(2, 75000, 1300, 189, ORCA.KIN_SHAPE.MAX_SMOOTHING, true, 3)
-motor:set_kin_motion(3, 250000, 1300, 250, ORCA.KIN_SHAPE.MIN_POWER, false, 0)
-motor:set_kin_home(0)
-motor:set_target_mode(ORCA.MODE.KINEMATIC)
-
-function update()
-    -- 1. Ensure driver loop updates continuously
-    motor:update()
-
-    if motor.target_mode == ORCA.MODE.KINEMATIC then
-        local kin = motor:get_current_kinematic()
-        if kin.status == ORCA.KIN_STATUS.DONE then
-             motor:set_target_mode(ORCA.MODE.SLEEP)
-        end
-    end
-
-    return update, 50
-end
-
-return update()
-```
 ### Sample Parameter File
 For initial configuration, we recommend creating a separate ORCA parameter file and loading it with `param load <file>`. Once loaded, save the parameters, and then any subsequent script runs just needs a call to `load_params()` or `param set ORCAx_APPLY 1`
 
